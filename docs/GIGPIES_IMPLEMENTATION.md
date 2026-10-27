@@ -41,3 +41,8 @@ The shared [GP-PANEL card](../../gigpies/docs/development/MODULE_IMPLEMENTATION_
 
 Fullscreen EQ/RTA and GP-SPECTRUM:2 are contributions to that same GP-PANEL card;
 [terminal usage](reference/TERMINAL.md#fullscreen-eq--rta) documents the operator workflow.
+
+Controller-only semantic menus and value entry contribute to the existing
+[GP-H2 card](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-h2--physical-dual-console-operation).
+The owning [controller contract](CONTROLLER.md#production-semantic-menu) separates
+the software adapter from physical input acquisition and device qualification.

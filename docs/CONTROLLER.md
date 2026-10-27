@@ -1,5 +1,28 @@
 # MiniLab controller and keyboard plan
 
+## Production semantic menu
+
+`src/controller_surface.rs` owns the labelled menu, bounded character wheel and
+complete-message pad binding. The eight logical pads are Previous, Next, Choose,
+Cancel, Character−, Character+, Add and Delete. Previous/Next also opens the menu;
+no encoder click, extra pad bank or computer key is required for this path.
+Physical profiles must supply the exact endpoint, MIDI channel and eight distinct
+note numbers; there is no guessed default. Note-off and velocity-zero note-on
+complete the gesture. Repeats cannot choose twice; lost input requires release.
+No MIDI port, preset or LED output is opened by this implementation.
+
+Menu actions call the existing provider-backed semantic workflow, not simulated
+computer keys. Numeric and text editors use existing parsing, capacity and
+review gates. The actual review must be displayed separately; the menu overlay
+cannot acknowledge hidden review content. Controller input retains its acquisition
+generation, and stale role/context/input cannot be replayed against a new target.
+
+The terminal footer exposes the same logical controls for software operation.
+The physical input worker/profile installation and target-device validation remain
+[GP-H2](https://github.com/gigpies/gigpies/blob/main/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-h2--physical-dual-console-operation).
+The older simulator mappings below are separate from this production menu path.
+
+
 2026-10-04. The related SHR LUX/DAW documentation identifies an **Arturia MiniLab
 mkII**, USB `1c75:0289`. No device was opened in this task. This is an evidence-based
 starting profile, not a fresh inventory or proof of the active memory's messages.
@@ -35,7 +58,7 @@ and global EQ bypass, review, cancellation and Back. The compressor menu exposes
 its six parameters, bypass and Back. Output exposes pan, level, mute, Hold,
 release, sends, cancellation and Back. Mute is secondary to the level pot.
 
-The 9–16 layer carries Mix, Channel, Sends, Health, Writer Grant, Release Hold,
+The 9–16 layer carries Mix, Channel, Sends, Controls (including Health), Writer Grant, Release Hold,
 Cancel and Reconnect. Menu meanings are local to the selected screen. Clicking
 `PADS 1–8` / `PADS 9–16` changes this preview layer; clicking a pad uses the same
 existing semantic field or action path. It does not synthesize a MIDI message.

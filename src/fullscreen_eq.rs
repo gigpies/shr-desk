@@ -121,7 +121,9 @@ pub fn draw(f: &Frontend, b: &mut Buffer, observation: Option<&View>) -> Vec<Hit
     text(b, area.x + 1, area.y, area.width - 2, &label, TEXT);
     hits.push(Hit {
         area: Rect::new(area.x + 1, area.y, area.width - 2, 1),
-        target: Target::Key("F11"),
+        target: Target::Action(crate::actions::Action::Console(
+            crate::controller_surface::Command::FullscreenEq,
+        )),
     });
     let graph = graph_area(area);
     panel(b, Rect::new(area.x, graph.y, area.width, graph.height), "");

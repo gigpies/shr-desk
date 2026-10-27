@@ -26,7 +26,7 @@ pub struct PanelUi {
 }
 #[derive(Clone, Debug)]
 pub enum Target {
-    Key(&'static str),
+    Action(crate::actions::Action),
     Field(usize),
     Menu(Menu),
     Layer,
@@ -317,7 +317,9 @@ pub fn draw_observation(
             &mut hits,
             Rect::new(3, 2, 38, 1),
             "F11 Fullscreen EQ / RTA",
-            Target::Key("F11"),
+            Target::Action(crate::actions::Action::Console(
+                crate::controller_surface::Command::FullscreenEq,
+            )),
             false,
         );
         well(b, Rect::new(3, 3, 74, 19));
@@ -672,7 +674,12 @@ pub fn draw_observation(
             }),
             pv.map_or(0.5, |v| (v as f64 + 100.) / 200.),
         ),
-        (Target::Key("C"), false),
+        (
+            Target::Action(crate::actions::Action::ExactEdit(
+                crate::exact_value::Parameter::Pan,
+            )),
+            false,
+        ),
         m,
     );
     let db = fader
@@ -687,7 +694,12 @@ pub fn draw_observation(
             &db.map_or("—".into(), |v| format!("{v:+.1}")),
             db.map_or(0., |v| (v + 60.) / 72.),
         ),
-        (Target::Key("D"), false),
+        (
+            Target::Action(crate::actions::Action::ExactEdit(
+                crate::exact_value::Parameter::Fader,
+            )),
+            false,
+        ),
         m,
     );
     text(b, 143, 40, 14, if muted { "MUTED" } else { "UNMUTED" }, DIM);
@@ -714,29 +726,55 @@ pub fn draw_observation(
     }
     let cmds: Vec<(&str, Target, &str, bool)> = if ui.secondary {
         vec![
-            ("MIX", Target::Key("F1"), "blue", false),
+            (
+                "MIX",
+                Target::Action(crate::actions::Action::Page(crate::model::Page::Mix)),
+                "blue",
+                false,
+            ),
             ("CHANNEL", Target::Menu(Menu::Channel), "blue", true),
-            ("SENDS", Target::Key("F12"), "blue", false),
-            ("HEALTH", Target::Key("F6"), "blue", false),
+            (
+                "SENDS",
+                Target::Action(crate::actions::Action::SendsPage),
+                "blue",
+                false,
+            ),
+            (
+                "CONTROLS",
+                Target::Action(crate::actions::Action::Console(
+                    crate::controller_surface::Command::Menu,
+                )),
+                "blue",
+                false,
+            ),
             (
                 "WRITER GRANT",
-                Target::Key("G"),
+                Target::Action(crate::actions::Action::Console(
+                    crate::controller_surface::Command::Grant,
+                )),
                 "green",
                 f.fresh() && u.writer_granted(),
             ),
             (
                 "RELEASE HOLD",
-                Target::Key("R"),
+                Target::Action(crate::actions::Action::Release),
                 "yellow",
                 f.fresh() && held,
             ),
             (
                 "CANCEL",
-                Target::Key("Esc"),
+                Target::Action(crate::actions::Action::Cancel),
                 "yellow",
                 f.processing_draft.is_some(),
             ),
-            ("RECONNECT", Target::Key("F5"), "red", !f.fresh()),
+            (
+                "RECONNECT",
+                Target::Action(crate::actions::Action::Console(
+                    crate::controller_surface::Command::Reconnect,
+                )),
+                "red",
+                !f.fresh(),
+            ),
         ]
     } else {
         match ui.menu {
@@ -761,13 +799,15 @@ pub fn draw_observation(
                     ),
                     (
                         "REVIEW / APPLY",
-                        Target::Key("F4"),
+                        Target::Action(crate::actions::Action::Console(
+                            crate::controller_surface::Command::ReviewDraft,
+                        )),
                         "yellow",
                         f.processing_draft.is_some(),
                     ),
                     (
                         if held { "HELD" } else { "HOLD" },
-                        Target::Key("H"),
+                        Target::Action(crate::actions::Action::Hold),
                         "yellow",
                         f.fresh() && held,
                     ),
@@ -814,11 +854,18 @@ pub fn draw_observation(
                     ),
                     (
                         "REVIEW / APPLY",
-                        Target::Key("F4"),
+                        Target::Action(crate::actions::Action::Console(
+                            crate::controller_surface::Command::ReviewDraft,
+                        )),
                         "yellow",
                         f.processing_draft.is_some(),
                     ),
-                    ("CANCEL", Target::Key("Esc"), "yellow", false),
+                    (
+                        "CANCEL",
+                        Target::Action(crate::actions::Action::Cancel),
+                        "yellow",
+                        false,
+                    ),
                     ("BACK", Target::Menu(Menu::Channel), "blue", false),
                 ]
             }
@@ -844,23 +891,52 @@ pub fn draw_observation(
             .chain([("BACK", Target::Menu(Menu::Channel), "blue", false)])
             .collect(),
             Menu::Output => vec![
-                ("PAN", Target::Key("C"), "blue", false),
-                ("LEVEL", Target::Key("D"), "blue", false),
+                (
+                    "PAN",
+                    Target::Action(crate::actions::Action::ExactEdit(
+                        crate::exact_value::Parameter::Pan,
+                    )),
+                    "blue",
+                    false,
+                ),
+                (
+                    "LEVEL",
+                    Target::Action(crate::actions::Action::ExactEdit(
+                        crate::exact_value::Parameter::Fader,
+                    )),
+                    "blue",
+                    false,
+                ),
                 (
                     if muted { "UNMUTE" } else { "MUTE" },
-                    Target::Key("M"),
+                    Target::Action(crate::actions::Action::Mute),
                     "red",
                     f.fresh() && muted,
                 ),
-                ("HOLD", Target::Key("H"), "yellow", f.fresh() && held),
                 (
-                    "RELEASE HOLD",
-                    Target::Key("R"),
+                    "HOLD",
+                    Target::Action(crate::actions::Action::Hold),
                     "yellow",
                     f.fresh() && held,
                 ),
-                ("SENDS", Target::Key("F12"), "blue", false),
-                ("CANCEL", Target::Key("Esc"), "yellow", false),
+                (
+                    "RELEASE HOLD",
+                    Target::Action(crate::actions::Action::Release),
+                    "yellow",
+                    f.fresh() && held,
+                ),
+                (
+                    "SENDS",
+                    Target::Action(crate::actions::Action::SendsPage),
+                    "blue",
+                    false,
+                ),
+                (
+                    "CANCEL",
+                    Target::Action(crate::actions::Action::Cancel),
+                    "yellow",
+                    false,
+                ),
                 ("BACK", Target::Menu(Menu::Channel), "blue", false),
             ],
         }
