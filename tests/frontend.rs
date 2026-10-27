@@ -975,3 +975,76 @@ fn fullscreen_eq_resizes_and_analysis_selection_does_not_change_eq_target() {
     drop(f);
     drop(peer);
 }
+
+#[test]
+fn controller_menu_edits_exact_values_without_keyboard_events_or_provider_writes() {
+    use shr_desk::{
+        actions::Action,
+        controller_surface::{Command, Gesture},
+    };
+    let (peer, c) = peer();
+    let mut f = Frontend::new(c);
+    wait(&mut f);
+    f.inject_controller(Action::ExactEdit(shr_desk::exact_value::Parameter::Fader))
+        .unwrap();
+    f.pump();
+    for ch in "-6.1".chars() {
+        f.inject_controller(Action::Console(Command::EntryAppend(ch.to_string())))
+            .unwrap();
+        f.pump();
+    }
+    f.inject_controller(Action::Console(Command::EntryAccept))
+        .unwrap();
+    f.pump();
+    assert_eq!(f.exact_draft.as_ref().unwrap().value, Some(-6100));
+    assert_eq!(f.exact_draft.as_ref().unwrap().text, "-6.1");
+    f.enqueue(Event::Gesture {
+        gesture: Gesture::Menu,
+        generation: f.provider.generation(),
+    })
+    .unwrap();
+    f.pump();
+    assert!(f.controller_surface.open);
+    assert!(text(&f.scene()).contains("Value: -6.1"));
+    assert!(f.scene().in_bounds());
+    let generation = f.provider.generation();
+    f.enqueue(Event::Focus(false)).unwrap();
+    f.enqueue(Event::Focus(true)).unwrap();
+    f.enqueue(Event::Gesture {
+        gesture: Gesture::Menu,
+        generation,
+    })
+    .unwrap();
+    f.pump();
+    assert!(
+        !f.controller_surface.open,
+        "old controller input must not reopen context"
+    );
+    drop(f);
+    assert!(peer.seen.lock().unwrap().iter().all(|k| k == "snapshot"));
+}
+
+#[test]
+fn controller_menu_labels_cover_lifecycle_review_and_supported_pages() {
+    let (_peer, c) = peer();
+    let mut f = Frontend::new(c);
+    wait(&mut f);
+    let items = f.controller_items();
+    for label in [
+        "Request control",
+        "Release control",
+        "Reconnect read-only",
+        "Exact channel level",
+        "Send level",
+        "Master EQ",
+        "Control effects",
+        "Measurement",
+    ] {
+        assert!(items.iter().any(|i| i.label == label), "{label}");
+    }
+    f.state.as_mut().unwrap().review = Some((51, "exact target and value".into()));
+    let items = f.controller_items();
+    assert_eq!(items.len(), 4);
+    assert!(items.iter().any(|i| i.label == "Confirm reviewed change"));
+    assert!(!items.iter().any(|i| i.label == "Request control"));
+}

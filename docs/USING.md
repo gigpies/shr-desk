@@ -5,6 +5,27 @@
 These controls require a configured, connected session. Availability depends on
 the engine and the control permission granted for the selected page.
 
+## Controls without computer shortcuts
+
+The live desk is intended for its assigned MIDI controller. Computer-keyboard
+shortcuts are optional fallback controls for the same actions.
+
+Outside the Channel panel, the terminal footer provides **Previous, Next, Choose, Cancel, Character−,
+Character+, Add and Delete**. Previous/Next opens the labelled action menu;
+Choose acts on a full press and release. The menu includes connection/control,
+page navigation, value editors and review actions. Select an editor, choose and
+add characters, then accept/review the value through the menu. Inspect the actual
+review before choosing Confirm; opening the menu does not count as reading it.
+The footer is also clickable. On Channel, the secondary pad layer has **Controls**;
+its existing band/compressor/output pads stay in place. F10 is the optional
+keyboard menu shortcut.
+
+This software path accepts explicitly bound controller messages; it does not
+open a MIDI device or install a preset. Physical input acquisition, learned
+bindings and device acceptance remain unfinished under
+[GP-H2](https://github.com/gigpies/gigpies/blob/main/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-h2--physical-dual-console-operation).
+The key references below document the optional computer-keyboard fallback.
+
 ## Channel EQ and compression
 
 With processing enabled, **F2** opens Channel in FOH scope. Select a parameter,

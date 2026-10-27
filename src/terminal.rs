@@ -157,11 +157,11 @@ pub fn run(
                             } else {
                                 f.area().width >= 160 && f.area().height >= 45
                             }
-                        } else if s
-                            .iter()
-                            .filter(|p| matches!(p, scene::Primitive::Rect { .. }))
-                            .count()
-                            == 1
+                        } else if !front.controller_surface.open
+                            && s.iter()
+                                .filter(|p| matches!(p, scene::Primitive::Rect { .. }))
+                                .count()
+                                == 1
                             && !s.iter().any(|p| matches!(p, scene::Primitive::Line { .. }))
                         {
                             scene::instrument_text(
@@ -182,6 +182,33 @@ pub fn run(
                         } else {
                             scene::draw(&s, f.buffer_mut(), material)
                         };
+                        if visible && !front.channel_panel_visible() {
+                            use shr_instrument_panel::terminal::ratatui::{
+                                layout::Rect, widgets::Paragraph,
+                            };
+                            let area = f.area();
+                            let items = front.controller_items();
+                            let selected = front
+                                .controller_surface
+                                .selected
+                                .min(items.len().saturating_sub(1));
+                            let label = format!(
+                                "{:<8}{:<8}{:<8}{:<8}{:<8}{:<8}{:<8}{:<8} | {}",
+                                "Prev",
+                                "Next",
+                                "Choose",
+                                "Cancel",
+                                "Char-",
+                                "Char+",
+                                "Add",
+                                "Delete",
+                                items.get(selected).map_or("", |i| i.label)
+                            );
+                            f.render_widget(
+                                Paragraph::new(label),
+                                Rect::new(0, area.height - 1, area.width, 1),
+                            );
+                        }
                     })
                     .map_err(|e| e.to_string())?;
                 if materials_enabled {
@@ -189,7 +216,7 @@ pub fn run(
                         .present(placements, &mut std::io::stdout())
                         .map_err(|e| e.to_string())?;
                 }
-                if visible {
+                if visible && !front.controller_surface.open {
                     front.mark_presented();
                 } else {
                     front.talkback_release();
@@ -242,6 +269,44 @@ pub fn run(
                             }
                         }
                     }
+                    Input::Mouse(mouse)
+                        if visible
+                            && !front.channel_panel_visible()
+                            && mouse.row + 1
+                                == console.terminal.size().map_err(|e| e.to_string())?.height
+                            && mouse.column < 64 =>
+                    {
+                        let index = usize::from(mouse.column / 8);
+                        let gesture = match mouse.kind {
+                            MouseEventKind::Down(MouseButton::Left) => {
+                                Some(crate::controller_surface::Gesture::Pad {
+                                    index,
+                                    pressed: true,
+                                })
+                            }
+                            MouseEventKind::Up(MouseButton::Left) => {
+                                Some(crate::controller_surface::Gesture::Pad {
+                                    index,
+                                    pressed: false,
+                                })
+                            }
+                            _ => None,
+                        };
+                        if let Some(gesture) = gesture {
+                            let _ = front.enqueue(Event::Gesture {
+                                gesture,
+                                generation: front.provider.generation(),
+                            });
+                        }
+                    }
+                    Input::Mouse(mouse)
+                        if matches!(mouse.kind, MouseEventKind::Up(MouseButton::Left)) =>
+                    {
+                        let _ = front.enqueue(Event::Gesture {
+                            gesture: crate::controller_surface::Gesture::CancelPress,
+                            generation: front.provider.generation(),
+                        });
+                    }
                     Input::Mouse(mouse) if visible && front.channel_panel_visible() => {
                         if let Some(hit) = hits
                             .iter()
@@ -257,17 +322,10 @@ pub fn run(
                                     }
                                 }
                                 (
-                                    crate::channel_panel::Target::Key(key),
+                                    crate::channel_panel::Target::Action(action),
                                     MouseEventKind::Down(MouseButton::Left),
                                 ) => {
-                                    let _ = front.enqueue(Event::Key {
-                                        key: (*key).into(),
-                                        pressed: true,
-                                    });
-                                    let _ = front.enqueue(Event::Key {
-                                        key: (*key).into(),
-                                        pressed: false,
-                                    });
+                                    let _ = front.inject_controller(action.clone());
                                 }
                                 (
                                     crate::channel_panel::Target::Menu(menu),

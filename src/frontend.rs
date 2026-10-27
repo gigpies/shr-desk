@@ -1,5 +1,6 @@
 //! Operator state and rendering over the real-provider worker boundary.
 //! No Simulator, device discovery or physical controller I/O.
+mod controller;
 mod fx;
 mod measurement;
 mod provider;
@@ -180,6 +181,10 @@ impl Update {
 }
 #[derive(Clone, Debug)]
 pub enum Event {
+    Gesture {
+        gesture: crate::controller_surface::Gesture,
+        generation: u64,
+    },
     /// Injected controller semantic action, stamped with the current input generation.
     Controller {
         action: Action,
@@ -281,6 +286,8 @@ pub struct ExactDraft {
     confirmation_requested: bool,
 }
 pub struct Frontend {
+    pub controller_surface: crate::controller_surface::Surface,
+    controller_identity: Option<String>,
     pub provider: Provider,
     pub state: Option<Update>,
     meter_client: Option<crate::metering::Worker>,
@@ -351,6 +358,8 @@ impl Frontend {
             state: None,
             meter_client: None,
             meter_identity: None,
+            controller_surface: Default::default(),
+            controller_identity: None,
             meter_generation: 0,
             meters: crate::metering::Cache::default(),
             spectrum: None,
@@ -468,6 +477,9 @@ impl Frontend {
     pub fn attach_role(&mut self, config: crate::roles::Config) {
         self.require_role();
         self.role_status = None;
+        self.controller_identity = config.acquire["binding"]["controller"]
+            .as_str()
+            .map(str::to_owned);
         self.role_client.take();
         self.role_client = Some(crate::roles::Client::start(
             config,
@@ -476,12 +488,14 @@ impl Frontend {
         ));
     }
     pub fn fence(&mut self) {
+        self.controller_surface.lost();
         self.fx_ui.basis = None;
         self.provider.fence();
         self.observed_generation = self.provider.generation();
         self.fence_local();
     }
     fn fence_local(&mut self) {
+        self.controller_surface.lost();
         self.fx_ui.basis = None;
         if let Some(s) = &self.state
             && s.fx.snapshot.is_some()
@@ -785,6 +799,62 @@ impl Frontend {
                 "Device draft retained; reopen device editor to validate current identity".into();
         }
         while let Some(event) = self.queue.pop_front() {
+            if let Event::Gesture {
+                gesture,
+                generation,
+            } = event
+            {
+                if generation == self.provider.generation()
+                    && self.focused
+                    && self.device_ready
+                    && self.width > 0
+                    && self.height > 0
+                {
+                    self.controller_surface.synchronize(format!(
+                        "{}|{:?}|{}|{:?}|{:?}|{:?}",
+                        self.selected,
+                        self.page,
+                        self.scope,
+                        self.state
+                            .as_ref()
+                            .and_then(|s| s.snapshot.as_ref())
+                            .map(|s| &s.authority.revision),
+                        self.state
+                            .as_ref()
+                            .and_then(|s| s.review.as_ref())
+                            .map(|r| r.0),
+                        (
+                            self.processing_field,
+                            self.selected_monitor,
+                            self.brain_bus,
+                            self.exact_draft.as_ref().map(|d| d.parameter),
+                            self.fx_ui.selected,
+                            self.measurement_ui.editor
+                        )
+                    ));
+                    let items = self.controller_items();
+                    if let Some(action) = self.controller_surface.gesture(gesture, &items) {
+                        let local = matches!(
+                            &action,
+                            Action::Console(
+                                crate::controller_surface::Command::EntryAppend(_)
+                                    | crate::controller_surface::Command::EntryBackspace
+                            ) | Action::ProcessingField(_)
+                                | Action::ProcessingAdjust(_)
+                                | Action::StructureField(_)
+                                | Action::StructureAdjust(_)
+                        );
+                        if let Err(e) = self.action(action) {
+                            self.message = e;
+                        }
+                        // The gesture completed a real release edge, never an inferred key-up.
+                        if !local {
+                            let _ = self.provider.send(None, Operation::InputReleased);
+                        }
+                    }
+                }
+                continue;
+            }
             if let Event::Controller { action, generation } = event {
                 if generation == self.provider.generation()
                     && self.focused
@@ -1015,6 +1085,9 @@ impl Frontend {
         Ok(())
     }
     fn key(&mut self, key: &str) -> Result<(), String> {
+        if key == "F10" {
+            return self.console_command(crate::controller_surface::Command::Menu);
+        }
         if self.channel_panel_visible() {
             if key == "F11"
                 || (self.eq_fullscreen
@@ -1055,14 +1128,16 @@ impl Frontend {
             && self.state.as_ref().is_none_or(|s| s.review.is_none())
             && key.eq_ignore_ascii_case("g")
         {
-            return self.send(Operation::Grant);
+            return self.action(Action::Console(crate::controller_surface::Command::Grant));
         }
         if self.fx_ui.open
             && self.fx_ui.text.is_none()
             && self.state.as_ref().is_none_or(|s| s.review.is_none())
             && key.eq_ignore_ascii_case("q")
         {
-            return self.send(Operation::ReleaseWriter);
+            return self.action(Action::Console(
+                crate::controller_surface::Command::ReleaseWriter,
+            ));
         }
         if let Some(a) = self.fx_key(key) {
             return self.action(Action::Fx(a));
@@ -1102,12 +1177,14 @@ impl Frontend {
         }
 
         if key == "F8" {
-            return self.reconnect_legacy();
+            return self.action(Action::Console(
+                crate::controller_surface::Command::LegacyReconnect,
+            ));
         }
         if key == "F5" {
-            self.fence();
-            self.attachment_fence = Some(self.provider.generation());
-            return self.provider.send(None, Operation::Reconnect);
+            return self.action(Action::Console(
+                crate::controller_surface::Command::Reconnect,
+            ));
         }
         if self.exact_draft.is_some() {
             let normalized = key.to_ascii_uppercase();
@@ -1367,19 +1444,21 @@ impl Frontend {
             return self.action(Action::LiveEqEdit);
         }
         if key == "G" {
-            return self.send(Operation::Grant);
+            return self.action(Action::Console(crate::controller_surface::Command::Grant));
         }
         if key == "Q" {
-            return self.send(Operation::ReleaseWriter);
+            return self.action(Action::Console(
+                crate::controller_surface::Command::ReleaseWriter,
+            ));
         }
         if self.review_id.is_some() && matches!(key, "PageUp" | "PageDown") {
-            let pages = self.review_lines().len().div_ceil(32).max(1);
-            if key == "PageDown" {
-                self.review_page = (self.review_page + 1).min(pages - 1);
-            } else {
-                self.review_page = self.review_page.saturating_sub(1);
-            }
-            return Ok(());
+            return self.action(Action::Console(
+                crate::controller_surface::Command::ReviewPage(if key == "PageUp" {
+                    -1
+                } else {
+                    1
+                }),
+            ));
         }
         if self.sends_page && self.review_id.is_none() {
             match key {
@@ -1517,6 +1596,9 @@ impl Frontend {
             })
     }
     fn action(&mut self, action: Action) -> Result<(), String> {
+        if let Action::Console(command) = action {
+            return self.console_command(command);
+        }
         if matches!(
             action,
             Action::Page(_) | Action::SendsPage | Action::BrainPage | Action::Topology
@@ -1544,6 +1626,7 @@ impl Frontend {
             return Err("Apply/confirm or Esc cancel exact draft first".into());
         }
         match action {
+            Action::Console(_) => unreachable!(),
             Action::Fx(a) => self.fx_action(a),
             Action::Measurement(action) => self.measurement_action(action),
             Action::ExactEdit(parameter) => {
@@ -2627,7 +2710,8 @@ impl Frontend {
     }
     /// Called after an actual renderer submission, never just by input polling.
     pub fn mark_presented(&mut self) {
-        if self.device_ready
+        if !self.controller_surface.open
+            && self.device_ready
             && self.width > 0
             && self.height > 0
             && self.fresh()
@@ -2846,7 +2930,8 @@ impl Frontend {
     }
     /// Dedicated channel layout must never obscure a modal or mark it reviewed.
     pub fn channel_panel_visible(&self) -> bool {
-        self.page == Page::Channel
+        !self.controller_surface.open
+            && self.page == Page::Channel
             && self.scope == "foh"
             && !self.meter_page
             && !self.brain_page
@@ -2887,6 +2972,9 @@ impl Frontend {
         ))
     }
     pub fn scene(&self) -> Scene {
+        if self.controller_surface.open {
+            return self.controller_scene();
+        }
         let mut scene = Scene::default();
         scene.primitives.push(Primitive::Rect {
             x: 0,

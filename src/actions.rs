@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
+    Console(crate::controller_surface::Command),
     Fx(crate::fx::Action),
     Measurement(crate::pa_measurement::editor::Action),
     ExactEdit(crate::exact_value::Parameter),
@@ -207,7 +208,8 @@ pub fn key_action(key: &str) -> Option<Action> {
 }
 pub fn apply(d: &mut Desk, action: Action) -> Result<Option<Command>, String> {
     match action {
-        Action::ExactEdit(_)
+        Action::Console(_)
+        | Action::ExactEdit(_)
         | Action::ExactText(_)
         | Action::ExactApply
         | Action::SendsPage
