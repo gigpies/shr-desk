@@ -120,7 +120,7 @@ full per-parameter ownership and engine-side ramps remain planned.
 ## Current shared Ratatui direction
 
 The physical instrument-panel presentation uses the shared Ratatui package owned
-by GigPies. [Terminal usage](TERMINAL.md) and the linked shared contract define
+by GigPies. [Terminal usage](reference/TERMINAL.md) and the linked shared contract define
 font selection, input/review safety, readable fallback and verification limits.
 The historical winit/wgpu direction below describes the retained compatibility
 frontend; it does not authorize a return to an application pixel framebuffer.

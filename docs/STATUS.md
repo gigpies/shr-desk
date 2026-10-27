@@ -594,7 +594,7 @@ The latest correction still requires complete matching suite reruns, both Clippy
 feature sets and both release builds. Actual weighted-PA/physical-route/high-channel
 operator and independent sample acceptance also remain pending with the coordinator.
 That dated local continuation was partial. Final task0014 software/two-Pi
-acceptance is recorded in [GigPies modular acceptance](https://github.com/PaolaShultz/gigpies/blob/main/docs/MODULAR_ENGINE_ACCEPTANCE.md).
+acceptance is recorded in [GigPies modular acceptance](https://github.com/gigpies/gigpies/blob/main/docs/acceptance/MODULAR_ENGINE_ACCEPTANCE.md).
 
 | Requirement at the preceding partial checkpoint | Consumer location | Then-remaining acceptance |
 |---|---|---|
@@ -713,7 +713,7 @@ recovered; its new take passed exact-sample checks.
 Provider-before-consumer publication, hosted CI and exact twelve-repository
 receiving receipts are tracked by the coordinator's private ledger. Physical PCM,
 socket mapping, clock lock, acoustic behavior and real display/controller
-qualification remain separate. The owning [GigPies acceptance record](https://github.com/PaolaShultz/gigpies/blob/main/docs/BRAIN_AUDIO_ACCEPTANCE.md)
+qualification remain separate. The owning [GigPies acceptance record](https://github.com/gigpies/gigpies/blob/main/docs/acceptance/BRAIN_AUDIO_ACCEPTANCE.md)
 records integrated measurements and limits. Earlier detailed checkpoints are
 preserved in the [dated draft](archive/brain-audio-before-final-2026-10-06/STATUS.md).
 

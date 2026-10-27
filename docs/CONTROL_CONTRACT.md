@@ -91,7 +91,7 @@ serialization, multiple writers, sockets, engine ramps or real audio continuity.
 
 ## Coordinated implementation baseline — 2026-10-04
 
-The [GP-2026-10-04.1 contract decisions](https://github.com/PaolaShultz/gigpies/blob/main/docs/MODULE_CONTRACTS.md)
+The [GP-2026-10-04.1 contract decisions](https://github.com/gigpies/gigpies/blob/main/docs/reference/MODULE_CONTRACTS.md)
 now fix the first implementation subset, examples, bounds and unresolved gates.
 They supersede undecided integration choices in this earlier proposal for that
 subset; the simulator remains in-process scaffolding with the limits above.

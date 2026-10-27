@@ -231,7 +231,7 @@ software-only session. No alternative role schema is defined here.
 ## Reproducible checks
 
 Serialize build/test/link work using the central
-[one-build-slot procedure](https://github.com/PaolaShultz/gigpies/blob/main/docs/PARALLEL_WORK_PLAN.md#one-build-slot-per-host).
+[one-build-slot procedure](https://github.com/gigpies/gigpies/blob/main/docs/development/PARALLEL_WORK_PLAN.md#one-build-slot-per-host).
 For a standalone checkout, a parent-held nonblocking lock can wrap each command:
 
 ```sh
@@ -920,7 +920,7 @@ complete window arrives. Identity changes clear values. None of these observatio
 changes selection, pending reviews, writer authority or held talkback.
 
 The sole plan/results/gates record is
-[GP-METER](https://github.com/PaolaShultz/gigpies/blob/main/docs/MODULE_IMPLEMENTATION_PLAN.md#gp-meter--measured-audio-on-the-real-desk).
+[GP-METER](https://github.com/gigpies/gigpies/blob/main/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-meter--measured-audio-on-the-real-desk).
 Normal tests cover codec, controlled-clock freshness, clip hold, page identity and
 banked scene geometry. The explicit `tests/metering.rs::actual_local_provider_native_scene`
 opt-in requires `GP_METER_PROVIDER` and producer-exported `GP_METER_TOPOLOGY_DIR`.
