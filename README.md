@@ -1,6 +1,6 @@
 # SHR Desk
 
-**The audio desk for GigPies.** Channel EQ and compression, faders, monitor sends,
+**A terminal application (TUI): the audio desk for GigPies.** Channel EQ and compression, faders, monitor sends,
 master EQ and effects, with manual control and optional automation.
 
 [![Channel view with four-band EQ, compressor, LED meters and physical-style controls](https://raw.githubusercontent.com/gigpies/gigpies/main/docs/assets/panel-desk-channel.png)](https://raw.githubusercontent.com/gigpies/gigpies/main/docs/assets/panel-desk-channel.png)
@@ -34,3 +34,5 @@ This separate text simulator opens no audio device and does not save a show.
 For the pictured panel, use the [terminal setup](docs/TERMINAL.md#open-the-panel).
 
 [Software status](docs/STATUS.md) · [MIT license](LICENSE) · [Font and artwork notices](THIRD_PARTY.md)
+
+[Contribute](https://github.com/gigpies/.github/blob/main/CONTRIBUTING.md) · [Report a bug](https://github.com/gigpies/shr-desk/issues/new/choose)
