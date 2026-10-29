@@ -81,9 +81,34 @@ still apply. Algorithms and numerical definitions belong to
 [SHR PA offline setup](../../shr-pa/docs/OFFLINE_SETUP.md).
 
 Calibration and repeated-sweep extraction are currently offline owner operations.
-Their provenance-bearing documents can be inspected off-device; GP20 does not
-accept arbitrary imported files as authenticated capture evidence. The PA owner
+Their provenance-bearing documents can be submitted through the explicit offline
+catalog below; GP20 never treats imported files as authenticated capture evidence. The PA owner
 can produce a detached EQ configuration for explicit F9 import/review; such an
 import is a manual configuration transaction, not a GP20 measurement acceptance.
 
 [Software validation record](archive/pa-setup-2026-10-29.md).
+
+## Review imported calibrated sweeps
+
+An explicitly configured provider can retain a hash-pinned offline evidence catalog.
+Each catalog entry contains an existing SHR PA v2 `eq_sweeps` request with complete
+sweep results, calibration provenance and the exact current PA configuration/revision.
+Preparing those files remains an offline PA-owner operation; Desk opens no device
+and does not run sweep analysis. The provider reads the files once at startup;
+changing a file does not silently replace the loaded evidence.
+
+In P enter `offline REVIEW_ID EVIDENCE_ID`, inspect the analysis request and confirm.
+In the text workflow use `measurement propose offline REVIEW_ID EVIDENCE_ID`.
+R opens the resulting proposed/no-change/refused result. Imported results are clearly
+labeled **IMPORTED OFFLINE SWEEPS**, with catalog ID/hash, calibration provenance,
+all correction points, original timing metadata, target, proposed bands and predicted
+error. These files are never presented as authenticated GP20 capture evidence.
+An unknown catalog ID, stale configuration or incompatible evidence refuses.
+
+A selects a proposed result for the existing muted whole-configuration review. Its
+material pages include provenance and the complete candidate; review all pages and
+confirm separately. Escape cancels an unsent review without changing configuration.
+X can explicitly cancel pending analysis (the existing cancellation command).
+Disconnect/revocation or basis changes invalidate outstanding work; reconnect does
+not resubmit anything. Obtain new evidence after configuration changes. No change
+or refusal applies nothing. Rearm remains a separate explicit action.

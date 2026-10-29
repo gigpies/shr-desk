@@ -184,6 +184,25 @@ pub fn lines(v: &Value) -> Result<Vec<String>, String> {
             v["calibration"]["provenance"]
         )
     });
+    let c = &v["basis_capture"];
+    lines.push(format!(
+        "Evidence clock {} / source epoch {} / map {} / configuration {}",
+        c["clock_domain"], c["source_epoch"], c["map_revision"], c["configuration_revision"]
+    ));
+    lines.push(format!(
+        "Reference {} at {} / offset {} frames / first frame {} / {} Hz",
+        c["reference_id"],
+        c["reference_tap"],
+        c["reference_offset_frames"],
+        c["first_frame"],
+        c["sample_rate"]
+    ));
+    lines.push(format!("Position {} / declared timing verified={} / dropped frames {} / clipping reference={} microphone={}", c["position_id"], c["timing_verified"], c["dropped_frames"], c["clipped_reference"], c["clipped_mic"]));
+    if let Some(points) = v["calibration"]["points"].as_array() {
+        for point in points {
+            lines.push(format!("Calibration {} Hz: {} dB", point[0], point[1]));
+        }
+    }
     for b in v["bands"].as_array().unwrap() {
         lines.push(format!(
             "Bell {} Hz / {} dB / Q {}",

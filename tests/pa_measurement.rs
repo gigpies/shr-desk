@@ -252,3 +252,24 @@ fn distance_field_entry_roundtrips_and_preserves_detached_document() {
     draft.text("0cm").unwrap();
     assert_eq!(draft.document.pointer(&path).unwrap().as_f64(), Some(0.));
 }
+
+#[test]
+fn offline_catalog_selection_is_explicit_bounded_and_versioned() {
+    use shr_desk::pa_measurement::{
+        editor::{Editor, Operation, parse},
+        wire,
+    };
+    let Operation::Review { kind, body } =
+        parse(Editor::Propose, "offline review imported-sweeps").unwrap()
+    else {
+        panic!("review required")
+    };
+    assert_eq!(kind, "measurement_offline_eq");
+    assert_eq!(body["evidence_id"], "imported-sweeps");
+    assert!(wire::mutation(&kind));
+    assert!(parse(Editor::Propose, "offline review").is_err());
+    assert!(parse(Editor::Propose, "offline review evidence extra").is_err());
+    let mut bad = body;
+    bad["path"] = "/arbitrary/file".into();
+    assert!(wire::validate_body(&kind, &bad, None).is_err());
+}

@@ -683,7 +683,7 @@ impl Request {
         } else {
             "C-AUDIO"
         };
-        let v = json!({"contract":contract,"version":if matches!(self.kind.as_str(),"measurement_overlap"|"measurement_eq") {2} else if matches!(contract,"GP21-fx"|"GP20-measurement"|"GP14-structure"|"GP15-brain"|"GP18-sends"|"GP18-master-eq") {1} else if contract == "GP07-processing" {processing_version(self.version)} else {self.version},"show_id":c.show_id,"module":c.module,"epoch":c.epoch,"writer":c.writer,"lease":c.lease,"request_id":c.request_id,"expected_revision":c.expected_revision,"kind":if contract=="GP15-brain" {crate::brain::wire_kind(&self.kind)} else {&self.kind},"body":self.body});
+        let v = json!({"contract":contract,"version":if matches!(self.kind.as_str(),"measurement_overlap"|"measurement_eq"|"measurement_offline_eq") {2} else if matches!(contract,"GP21-fx"|"GP20-measurement"|"GP14-structure"|"GP15-brain"|"GP18-sends"|"GP18-master-eq") {1} else if contract == "GP07-processing" {processing_version(self.version)} else {self.version},"show_id":c.show_id,"module":c.module,"epoch":c.epoch,"writer":c.writer,"lease":c.lease,"request_id":c.request_id,"expected_revision":c.expected_revision,"kind":if contract=="GP15-brain" {crate::brain::wire_kind(&self.kind)} else {&self.kind},"body":self.body});
         let b = serde_json::to_vec(&v).map_err(|e| e.to_string())?;
         if b.len() > provider::MAX_BYTES {
             return fail("request capacity");

@@ -728,6 +728,7 @@ inputs, not newly implemented screens or physical-console acceptance.
 
 [PA review](PA_MEASUREMENT.md) supports distance entry, explicit GP20 v2 overlap
 and EQ requests, predicted response/PEQ review and the existing muted transaction.
-Calibration/sweep analysis remains an offline PA-owner operation; imported owner
-configurations are manual edits, never authenticated GP20 capture evidence.
+Calibration/sweep analysis remains an offline PA-owner operation. Desk can request
+review of explicitly cataloged offline sweep evidence and apply a proposed candidate
+through muted GP14 review; imported files never become authenticated GP20 captures.
 Physical measurement remains unavailable; [DS-PA-SETUP](archive/pa-setup-2026-10-29.md) records software validation.

@@ -73,6 +73,7 @@ pub fn is_kind(k: &str) -> bool {
             | "measurement_propose"
             | "measurement_overlap"
             | "measurement_eq"
+            | "measurement_offline_eq"
     )
 }
 pub fn mutation(k: &str) -> bool {
@@ -83,6 +84,7 @@ pub fn mutation(k: &str) -> bool {
             | "measurement_propose"
             | "measurement_overlap"
             | "measurement_eq"
+            | "measurement_offline_eq"
     )
 }
 fn id(v: &Value) -> Result<(), String> {
@@ -155,6 +157,11 @@ pub fn validate_body(k: &str, b: &Value, s: Option<&Snapshot>) -> Result<(), Str
                 }
             }
         }
+        "measurement_offline_eq" => {
+            provider::keys(b, &["id", "evidence_id"])?;
+            id(&b["id"])?;
+            id(&b["evidence_id"])?;
+        }
         "measurement_eq" => {
             provider::keys(b, &["id", "captures", "target"])?;
             id(&b["id"])?;
@@ -220,7 +227,10 @@ impl Basis {
 impl Summary {
     fn validate(&self) -> Result<(), String> {
         if !super::identifier(&self.id)
-            || !matches!(self.kind.as_str(), "capture" | "proposal")
+            || !matches!(
+                self.kind.as_str(),
+                "capture" | "proposal" | "offline_proposal"
+            )
             || !matches!(
                 self.state.as_str(),
                 "capturing"
@@ -369,6 +379,14 @@ impl Reply {
             s.basis.validate()?;
             if let Some(j) = &s.owner_result_json {
                 let doc = super::owner_document(j)?;
+                if s.summary.kind == "offline_proposal"
+                    && !matches!(
+                        doc["contract"].as_str(),
+                        Some("C-PA-EQ-PROPOSAL" | "C-PA-MEASUREMENT-REFUSAL")
+                    )
+                {
+                    return Err("offline result contract".into());
+                }
                 let identity = if doc["contract"] == "C-PA-OVERLAP-REVIEW" {
                     &doc["proposal"]
                 } else {
@@ -378,10 +396,11 @@ impl Reply {
                     .get("capture")
                     .or_else(|| identity.get("basis_capture"))
                 {
-                    if c["source_epoch"] != s.basis.source_epoch
-                        || c["map_revision"] != s.basis.map_revision
+                    if (s.summary.kind != "offline_proposal"
+                        && (c["source_epoch"] != s.basis.source_epoch
+                            || c["map_revision"] != s.basis.map_revision
+                            || c["clock_domain"] != s.basis.clock_domain))
                         || c["configuration_revision"] != s.basis.graph_generation
-                        || c["clock_domain"] != s.basis.clock_domain
                     {
                         return Err("owner result/basis provenance mismatch".into());
                     }
@@ -448,6 +467,9 @@ impl State {
                 "RESULT {} {} {:?}",
                 r.summary.id, r.summary.state, r.summary.reason
             ));
+            if r.summary.kind == "offline_proposal" {
+                v.push("IMPORTED OFFLINE SWEEPS — not authenticated GP20 capture; physical timing and microphone unverified".into());
+            }
             if let Some(j) = &r.owner_result_json {
                 match super::owner_lines(j) {
                     Ok(lines) => v.extend(lines),

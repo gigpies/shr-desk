@@ -46,3 +46,6 @@ Controller-only semantic menus and value entry contribute to the existing
 [GP-H2 card](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-h2--physical-dual-console-operation).
 The owning [controller contract](CONTROLLER.md#production-semantic-menu) separates
 the software adapter from physical input acquisition and device qualification.
+
+
+[DS-CAL-REVIEW — calibrated offline Desk review](archive/pa-cal-review-2026-10-29.md) has software acceptance; physical qualification remains separate.

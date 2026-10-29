@@ -19,6 +19,7 @@ pub(crate) use transport::{trace_add, trace_timing_enabled, trace_us};
 
 struct Draft {
     measurement_basis: Option<crate::pa_measurement::wire::Basis>,
+    measurement_review: Option<String>,
     fx_basis: Option<crate::fx::Observation>,
     monitor_device: Option<audio::MonitorDevicePin>,
     kind: String,
@@ -316,7 +317,7 @@ impl Operator {
     pub(crate) fn reviewed(&self) -> Option<String> {
         self.draft.as_ref().map(|d| {
             if let Some(b)=&d.fx_basis { let m:crate::fx::Mutation=serde_json::from_value(d.body.clone()).expect("validated FX review"); return format!("{}\nAuthority revision {} / scope {} / show {} / epoch {}",crate::fx::review_lines(b,&m),d.revision,self.scope,self.session.snapshot_request().context.show_id,self.session.snapshot_request().context.epoch); }
-            if d.kind=="pa_set" {return format!("MUTED WHOLE PA CONFIGURATION / revision {} / program buses {} / explicit rearm remains separate\n{}",d.revision,d.body["program_buses"],d.body["configuration_json"].as_str().and_then(|s|serde_json::from_str::<Value>(s).ok()).and_then(|v|serde_json::to_string_pretty(&v).ok()).unwrap_or_default());}
+            if d.kind=="pa_set" {return format!("{}\nMUTED WHOLE PA CONFIGURATION / revision {} / program buses {} / explicit rearm remains separate\n{}",d.measurement_review.as_deref().unwrap_or("Manual configuration"),d.revision,d.body["program_buses"],d.body["configuration_json"].as_str().and_then(|s|serde_json::from_str::<Value>(s).ok()).and_then(|v|serde_json::to_string_pretty(&v).ok()).unwrap_or_default());}
             if d.kind=="device_configure" {return format!("DEVICE CONFIGURATION / revision {} / separate rearm required\n{}",d.revision,serde_json::to_string_pretty(&d.body["config"]).unwrap_or_default());}
             if d.kind == "processing_set" {
                 let config = crate::processing::decode_config(&d.body["config"]).expect("validated draft");
@@ -2326,6 +2327,7 @@ impl Operator {
         );
         self.draft = Some(Draft {
             measurement_basis: None,
+            measurement_review: None,
             fx_basis: None,
             monitor_device,
             kind: kind.into(),

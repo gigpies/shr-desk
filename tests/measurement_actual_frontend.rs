@@ -308,3 +308,149 @@ fn actual_keyboard_measurement_to_muted_owner_apply() {
     )
     .unwrap();
 }
+
+#[test]
+#[ignore = "requires bounded measurement-provider with imported and refused offline catalog fixtures; no devices"]
+fn actual_keyboard_imported_sweep_review_to_muted_owner() {
+    let root = PathBuf::from(std::env::var("GP20_EPISODE_DIR").expect("private witness directory"));
+    let end = Instant::now() + Duration::from_secs(80);
+    let mut f = Frontend::new(Config {
+        wire_version: 2,
+        remote: None,
+        endpoint: root.join("audio.sock"),
+        show: "11111111-1111-4111-8111-111111111111".into(),
+        epoch: 1,
+        writer: "desk-offline-test".into(),
+        scope: "pa_configuration".into(),
+    });
+    wait(&mut f, end, "attach", Frontend::fresh);
+    tap(&mut f, "G");
+    wait(&mut f, end, "grant", |f| {
+        f.state.as_ref().is_some_and(|s| s.writer_granted())
+    });
+    probe(&mut f, end);
+    let initial = f
+        .state
+        .as_ref()
+        .unwrap()
+        .measurement
+        .snapshot
+        .as_ref()
+        .unwrap()
+        .current_basis
+        .clone()
+        .unwrap();
+    form(&mut f, "P", "offline refused-review refused");
+    confirm(&mut f, end);
+    result(&mut f, end, "refused-review", "refused");
+    assert!(
+        f.state
+            .as_ref()
+            .unwrap()
+            .measurement
+            .result
+            .as_ref()
+            .unwrap()
+            .candidate_configuration_json
+            .is_none()
+    );
+    form(&mut f, "P", "offline imported-review imported");
+    confirm(&mut f, end);
+    result(&mut f, end, "imported-review", "proposed");
+    let r = f
+        .state
+        .as_ref()
+        .unwrap()
+        .measurement
+        .result
+        .clone()
+        .unwrap();
+    assert_eq!(r.summary.kind, "offline_proposal");
+    assert!(r.summary.reason.as_ref().unwrap().contains("SHA256"));
+    assert_eq!(r.basis, initial);
+    let p: serde_json::Value = serde_json::from_str(r.owner_result_json.as_ref().unwrap()).unwrap();
+    assert_eq!(p["basis_capture"]["source_epoch"], "77");
+    assert_eq!(p["basis_capture"]["reference_offset_frames"], "17");
+    assert_eq!(
+        p["calibration"]["provenance"],
+        "invented-half-gain-microphone"
+    );
+    let candidate = r.candidate_configuration_json.clone().unwrap();
+    form(&mut f, "A", "imported-review");
+    wait(&mut f, end, "cancel review", |f| {
+        f.state.as_ref().is_some_and(|s| s.review.is_some())
+    });
+    assert!(
+        f.state
+            .as_ref()
+            .unwrap()
+            .review
+            .as_ref()
+            .unwrap()
+            .1
+            .contains("IMPORTED OFFLINE SWEEPS")
+    );
+    assert!(
+        f.state
+            .as_ref()
+            .unwrap()
+            .review
+            .as_ref()
+            .unwrap()
+            .1
+            .contains("invented-half-gain-microphone")
+    );
+    tap(&mut f, "Esc");
+    wait(&mut f, end, "cancelled", |f| {
+        f.state.as_ref().is_some_and(|s| s.review.is_none())
+    });
+    probe(&mut f, end);
+    assert_eq!(
+        f.state
+            .as_ref()
+            .unwrap()
+            .measurement
+            .snapshot
+            .as_ref()
+            .unwrap()
+            .current_basis
+            .as_ref(),
+        Some(&initial)
+    );
+    form(&mut f, "A", "imported-review");
+    confirm(&mut f, end);
+    probe(&mut f, end);
+    let current = f
+        .state
+        .as_ref()
+        .unwrap()
+        .measurement
+        .snapshot
+        .as_ref()
+        .unwrap()
+        .current_basis
+        .clone()
+        .unwrap();
+    assert_eq!(current.configuration_json, candidate);
+    assert_ne!(current.graph_generation, initial.graph_generation);
+    assert!(
+        f.state
+            .as_ref()
+            .unwrap()
+            .structural
+            .as_ref()
+            .unwrap()
+            .outputs_quiesced
+    );
+    form(&mut f, "A", "imported-review");
+    wait(&mut f, end, "stale import refused", |f| {
+        f.state.as_ref().is_some_and(|s| {
+            s.review.is_none()
+                && s.last_operation
+                    .as_ref()
+                    .is_some_and(|x| x.contains("basis changed") || x.contains("did not propose"))
+        })
+    });
+    assert!(f.state.as_ref().unwrap().review.is_none());
+    fs::write(root.join("offline-desk-acceptance.json"), serde_json::to_vec_pretty(&json!({"imported":r,"actual_owner_readback":current,"cancelled_review":true,"stale_refused":true,"outputs_quiesced":true,"rearm":false,"physical":false})).unwrap()).unwrap();
+}

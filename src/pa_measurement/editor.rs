@@ -29,7 +29,7 @@ impl Editor {
             Self::Cancel => "CAPTURE_ID (explicit cancellation, does not undo completed results)",
             Self::Result => "RESULT_ID (read only; includes uncertainty and every spectral bin)",
             Self::Propose => {
-                "[overlap] ID ANCHOR TARGET [...] | eq ID flat|bass_shaped|damped_high_frequency CAPTURE [...]"
+                "[overlap] ID ANCHOR TARGET [...] | eq ID TARGET CAPTURE [...] | offline ID EVIDENCE_ID (imported sweeps)"
             }
             Self::Apply => {
                 "PROPOSAL_ID (fresh basis; muted whole configuration review; rearm separate)"
@@ -79,6 +79,20 @@ pub fn parse(editor: Editor, text: &str) -> Result<Operation, String> {
             .parse::<u64>()
             .map_err(|_| "unsigned integer field required".to_string())
     };
+    if editor == Editor::Propose && f.first() == Some(&"offline") {
+        if f.len() != 3 {
+            return Err(
+                "offline ID EVIDENCE_ID (startup catalog; imported, not authenticated capture)"
+                    .into(),
+            );
+        }
+        let body = json!({"id":f[1],"evidence_id":f[2]});
+        super::wire::validate_body("measurement_offline_eq", &body, None)?;
+        return Ok(Operation::Review {
+            kind: "measurement_offline_eq".into(),
+            body,
+        });
+    }
     if editor == Editor::Propose && f.first() == Some(&"eq") {
         if f.len() < 4 {
             return Err(

@@ -133,6 +133,22 @@ impl Operator {
             &crate::master_eq::parse_owner(&r.basis.configuration_json)?,
             &crate::master_eq::parse_owner(&cfg)?,
         )?;
+        let label = if r.summary.kind == "offline_proposal" {
+            "IMPORTED OFFLINE SWEEPS — not authenticated GP20 capture"
+        } else {
+            "Authenticated GP20 software capture — physical timing unqualified"
+        };
+        let evidence = format!(
+            "{}\n{}\n{}",
+            label,
+            r.summary.reason.as_deref().unwrap_or(""),
+            crate::pa_measurement::owner_lines(
+                r.owner_result_json
+                    .as_deref()
+                    .ok_or("owner evidence missing")?
+            )?
+            .join("\n")
+        );
         self.stage(
             "pa_set",
             json!({"configuration_json":cfg,"program_buses":r.basis.program_buses}),
@@ -145,6 +161,8 @@ impl Operator {
             self.draft = None;
             return Err("muted exact PA configuration and program bus basis required".into());
         }
+        println!("PA EVIDENCE REVIEW\n{evidence}");
+        self.draft.as_mut().unwrap().measurement_review = Some(evidence);
         self.draft.as_mut().unwrap().measurement_basis = Some(r.basis);
         Ok(())
     }
