@@ -4,6 +4,7 @@ mod controller;
 mod fx;
 mod measurement;
 mod provider;
+mod recorder;
 #[cfg(test)]
 use crate::local_audio::Operator;
 use crate::{
@@ -46,6 +47,7 @@ pub struct Config {
 }
 #[derive(Clone, Debug)]
 pub enum Operation {
+    Record(crate::recorder::Operation),
     Fx(crate::fx::Operation),
     Measurement(crate::pa_measurement::editor::Operation),
     SwitchScope(String),
@@ -93,6 +95,7 @@ pub enum Operation {
 }
 #[derive(Clone, Debug)]
 pub struct Update {
+    pub recorder: crate::recorder::View,
     pub measurement: crate::pa_measurement::wire::State,
     pub fx: crate::fx::State,
     pub fx_age_ms: Option<u64>,
@@ -286,6 +289,7 @@ pub struct ExactDraft {
     confirmation_requested: bool,
 }
 pub struct Frontend {
+    record_page: bool,
     pub controller_surface: crate::controller_surface::Surface,
     controller_identity: Option<String>,
     pub provider: Provider,
@@ -354,6 +358,7 @@ impl Frontend {
     pub fn new(config: Config) -> Self {
         let scope = config.scope.clone();
         Self {
+            record_page: false,
             provider: Provider::start(config.clone()),
             state: None,
             meter_client: None,
@@ -961,7 +966,10 @@ impl Frontend {
     pub fn fresh(&self) -> bool {
         self.attachment_fence.is_none() && self.state.as_ref().is_some_and(|s| s.raw_fresh())
     }
-    fn accept_update(&mut self, update: Update) {
+    fn accept_update(&mut self, mut update: Update) {
+        if let Some(old) = &self.state {
+            update.recorder.retain_unknown(&old.recorder);
+        }
         if let Some(required) = self.attachment_fence {
             if update.attachment_generation != required {
                 return;
@@ -1158,6 +1166,7 @@ impl Frontend {
             && self.structural_draft.is_none()
             && self.device_draft.is_none()
             && self.exact_draft.is_none()
+            && !self.record_page
             && !self.fx_ui.open
             && !self.measurement_ui.open
             && !self.live_page
@@ -1582,6 +1591,16 @@ impl Frontend {
                 _ => (),
             }
         }
+        if key.eq_ignore_ascii_case("j") {
+            return self.action(Action::Record(crate::recorder::Action::Open));
+        }
+        if self.record_page && self.state.as_ref().is_none_or(|s| s.review.is_none()) {
+            match key {
+                "N" | "n" => return self.action(Action::Record(crate::recorder::Action::Start)),
+                "S" | "s" => return self.action(Action::Record(crate::recorder::Action::Stop)),
+                _ => (),
+            }
+        }
         if key.eq_ignore_ascii_case("w") {
             return self.action(Action::Fx(crate::fx::Action::Open));
         }
@@ -1611,6 +1630,7 @@ impl Frontend {
             action,
             Action::Page(_) | Action::SendsPage | Action::BrainPage | Action::Topology
         ) {
+            self.record_page = false;
             self.measurement_ui.open = false;
             self.fx_ui.open = false;
         }
@@ -1635,8 +1655,15 @@ impl Frontend {
         }
         match action {
             Action::Console(_) => unreachable!(),
-            Action::Fx(a) => self.fx_action(a),
-            Action::Measurement(action) => self.measurement_action(action),
+            Action::Record(a) => self.record_action(a),
+            Action::Fx(a) => {
+                self.record_page = false;
+                self.fx_action(a)
+            }
+            Action::Measurement(action) => {
+                self.record_page = false;
+                self.measurement_action(action)
+            }
             Action::ExactEdit(parameter) => {
                 if self.scope != "foh"
                     || !matches!(self.page, Page::Mix | Page::Channel)
@@ -2946,6 +2973,7 @@ impl Frontend {
             && !self.live_page
             && !self.sends_page
             && self.topology_page.is_none()
+            && !self.record_page
             && !self.fx_ui.open
             && !self.measurement_ui.open
             && !self.mode_picker
@@ -3034,6 +3062,9 @@ impl Frontend {
             );
             line(972, self.message.clone(), "#f47c85");
             return scene;
+        }
+        if self.record_page {
+            return self.record_scene();
         }
         if self.fx_ui.open {
             return self.fx_scene();

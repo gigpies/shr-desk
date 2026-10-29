@@ -245,6 +245,8 @@ fn worker(
     let mut processing_poll = Instant::now();
     let mut sends_enabled = false;
     let mut sends_poll = Instant::now();
+    let mut record_enabled = false;
+    let mut record_poll = Instant::now();
     let mut fx_enabled = false;
     let mut fx_poll = Instant::now();
     let mut live_enabled = false;
@@ -351,6 +353,9 @@ fn worker(
         }
         let received = Instant::now();
         let update = Update {
+            recorder: op
+                .as_ref()
+                .map_or_else(Default::default, |o| o.recorder.clone()),
             generation: g,
             attachment_generation,
             last_operation: last_operation.clone(),
@@ -449,6 +454,7 @@ fn worker(
                 && !matches!(
                     r.operation,
                     Operation::InputReleased
+                        | Operation::Record(crate::recorder::Operation::Probe)
                         | Operation::Fx(crate::fx::Operation::Probe)
                         | Operation::Measurement(
                             crate::pa_measurement::editor::Operation::Probe
@@ -535,6 +541,7 @@ fn worker(
                     }
                     config.scope = scope.clone();
                 }
+                record_enabled = false;
                 fx_enabled = false;
                 op = None;
                 review = None;
@@ -550,6 +557,7 @@ fn worker(
                     last_operation = Some("PENDING; awaiting provider confirmation".into());
                     let received = Instant::now();
                     let pending_update = Update {
+                        recorder: o.recorder.clone(),
                         generation: g,
                         attachment_generation,
                         last_operation: last_operation.clone(),
@@ -591,6 +599,7 @@ fn worker(
                             match &r.operation {
                                 Operation::EnableLiveEq => "live EQ probe",
                                 Operation::ReviewLiveEq(_) => "live EQ review",
+                                Operation::Record(_) => "REC actual owner",
                                 Operation::Fx(_) => "FX actual owner",
                                 Operation::Measurement(_) => "PA measurement",
                                 Operation::EnableSends => "sends capability query",
@@ -640,7 +649,8 @@ fn worker(
                     }
                 }
                 let local_result = match &r.operation {
-                    Operation::Fx(crate::fx::Operation::Review { .. })
+                    Operation::Record(crate::recorder::Operation::Review { .. })
+                    | Operation::Fx(crate::fx::Operation::Review { .. })
                     | Operation::ReviewDevice(..)
                     | Operation::ReviewBrain { .. }
                     | Operation::ReviewStructure { .. }
@@ -685,6 +695,18 @@ fn worker(
                         return Err("input context changed; intent discarded".into());
                     }
                     match r.operation {
+                        Operation::Record(command) => {
+                            record_enabled = true;
+                            match command {
+                                crate::recorder::Operation::Probe => o.refresh_record(),
+                                crate::recorder::Operation::Review { start, body } => {
+                                    o.stage_record(start, body)?;
+                                    serial = serial.checked_add(1).ok_or("review exhausted")?;
+                                    review = Some((serial, o.reviewed().unwrap_or_default()));
+                                    Ok(())
+                                }
+                            }
+                        }
                         Operation::Fx(command) => match command {
                             crate::fx::Operation::Probe => {
                                 fx_enabled = true;
@@ -912,6 +934,7 @@ fn worker(
             {
                 let received = Instant::now();
                 *latest.update.lock().unwrap() = Some(Update {
+                    recorder: o.recorder.clone(),
                     generation: g,
                     attachment_generation,
                     last_operation: last_operation.clone(),
@@ -986,6 +1009,16 @@ fn worker(
                 {
                     status = format!("Structural state unavailable: {error}");
                 }
+                if record_enabled
+                    && record_poll.elapsed() >= Duration::from_millis(250)
+                    && o.session.pending.is_none()
+                {
+                    if let Err(e) = o.refresh_record() {
+                        status = format!("REC readback unavailable: {e}");
+                        record_enabled = false;
+                    }
+                    record_poll = Instant::now();
+                }
                 if fx_enabled
                     && fx_poll.elapsed() >= Duration::from_millis(80)
                     && o.session.pending.is_none()
@@ -1040,6 +1073,7 @@ fn worker(
                     review = None;
                     o.cancel();
                     o.session.disconnect();
+                    record_enabled = false;
                     fx_enabled = false;
                     op = None;
                 } else if review.is_some() && !o.review_valid() {

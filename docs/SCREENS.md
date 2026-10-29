@@ -53,7 +53,7 @@ Physical operation follows separate acceptance. Add work to its owning task card
 | Automation | Mode, scope, proposals/reasons/bounds, human hold and deliberate release | Authority/proposals/holds exist; live musical proposal generation is GP-AUTO |
 | Analysis | Measured levels first; later spectrum/spectrogram/stereo analysis | Schematic simulator plots are not measurements; GP-METER excludes broader FFT/analysis work |
 | FX | Send/return context, rack/effect details, bypass/mute and readback | Actual fixed-delay health; writable prepared rack depends on owner FX-02/03 and shared GP-FX |
-| Recorder | Readiness, start/stop, accepted/written frames, gaps and finalized outcome | Actual host/raw REC lifecycle and health; complete operator workflow is GP-REC; durability stays unknown |
+| Recorder | Readiness, start/stop, accepted/written frames, gaps and finalized outcome | Actual host/raw REC lifecycle and health; Recorder (J) offers reviewed Start/Stop; durability stays unknown |
 | PA | Protection/fault summary, reviewed configuration and output routing | Configurable owner v2 is integrated; setup-mic/phase/alignment remain PA-owned work |
 | Brain audio | Duplex mapping/review/arm, PFL/AFL/listen and held talkback | Actual GigPies Brain contracts; Desk opens no PCM; physical qualification remains separate |
 | Show / recovery | Freshness, scopes, connections and reviewed scene recall with safes | Authenticated/recovery foundations exist; complete audio scene workflow is GP-SHOW |

@@ -378,6 +378,13 @@ impl Frontend {
             add(label, Action::Fx(a));
         }
         for (label, a) in [
+            ("Recorder", crate::recorder::Action::Open),
+            ("Record new take", crate::recorder::Action::Start),
+            ("Stop recording", crate::recorder::Action::Stop),
+        ] {
+            add(label, Action::Record(a));
+        }
+        for (label, a) in [
             ("Measurement", M::Open),
             ("Capture measurement", M::Capture),
             ("Cancel capture", M::CancelCapture),

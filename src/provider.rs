@@ -134,13 +134,13 @@ pub struct StrictDocument {
 impl StrictDocument {
     pub fn parse(bytes: &[u8]) -> Result<Self, String> {
         Ok(Self {
-            value: parse_document(bytes)?,
+            value: transport_document(bytes, MAX_DOCUMENT_BYTES)?,
             admitted_bytes: bytes.len(),
         })
     }
     pub(crate) fn frame(bytes: &[u8]) -> Result<Self, String> {
         Ok(Self {
-            value: parse(bytes)?,
+            value: transport_document(bytes, MAX_BYTES)?,
             admitted_bytes: bytes.len(),
         })
     }
@@ -156,7 +156,7 @@ impl StrictDocument {
     pub(crate) fn into_bytes(self) -> Result<Vec<u8>, String> {
         serde_json::to_vec(&self.value).map_err(|e| e.to_string())
     }
-    /// A subtree retains strict duplicate/integer/depth proof. Its historical
+    /// A subtree retains strict duplicate/depth proof and contract-specific number admission. Its historical
     /// transport admission length is the canonical serialized payload length.
     pub(crate) fn subtree(mut self, key: &str) -> Result<Self, String> {
         let value = self
@@ -169,6 +169,38 @@ impl StrictDocument {
             value,
             admitted_bytes,
         })
+    }
+}
+// GP05 health already contains finite floating-point FX/PA metadata. Permit
+// those existing subtrees only in a module status, including an authenticated
+// remote Reply envelope. Every authority/REC field remains integer-only. The
+// selected module decoder still owns schema and identity validation.
+fn transport_document(bytes: &[u8], limit: usize) -> Result<Value, String> {
+    match parse_limit(bytes, limit) {
+        Ok(v) => Ok(v),
+        Err(original) => {
+            let v = crate::modules::parse_limit(bytes, limit)?;
+            let mut integer = v.clone();
+            let payload = if integer["kind"] == "reply" {
+                keys(&integer, &["kind", "session", "payload"])?;
+                &mut integer["payload"]
+            } else {
+                &mut integer
+            };
+            if payload["contract"] != "GP05-modules" || !payload["available"].is_boolean() {
+                return Err(original);
+            }
+            for key in ["fx", "pa", "pa_v2"] {
+                if let Some(value) = payload.get_mut(key) {
+                    *value = Value::Null;
+                }
+            }
+            parse_limit(
+                &serde_json::to_vec(&integer).map_err(|e| e.to_string())?,
+                limit,
+            )?;
+            Ok(v)
+        }
     }
 }
 pub(crate) fn parse(bytes: &[u8]) -> Result<Value, String> {

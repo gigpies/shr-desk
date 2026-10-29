@@ -19,7 +19,7 @@ Actual terminal capture with deterministic software audio, approved October 20,
 
 The terminal panel and optional native window use the GigPies processing engine.
 **Physical controller/display acceptance is still pending.** The screenshot shows
-software rendering. Desk recording controls are not connected yet.
+software rendering. Reviewed recording controls require a configured GigPies recorder.
 
 ## Try the offline simulator
 

@@ -86,6 +86,28 @@ selected side; **B** reviews panic for both. Panic clears the tail; it is not a
 persistent output mute. This is the integrated stereo effect, not the full
 standalone SHR FX rack.
 
+## Recording
+
+In FOH scope, **J** opens Recorder and reads the engine's current take. Use **G**
+to request control. **N** reviews a new automatically named take; inspect the raw
+track order and confirm with Enter. **S** reviews Stop for the displayed take;
+confirm to drain and finalize. The controller menu also exposes Recorder, Record
+new take and Stop recording. Esc cancels an unsubmitted review.
+
+Wait for **recording** after Start. **Preparing** is not capture readiness.
+After Stop, wait through **finalizing** and inspect the final outcome: complete,
+incomplete or error. Accepted frames entered the queues; written frames reached
+all stems and the journal. Queued is their difference. Durable stays **UNKNOWN**.
+Drops, gaps, clipping and writer/host faults require attention even when frames
+were written. Start checks storage asynchronously and can finish with an error.
+
+Files live under the engine's private `takes/<take-id>/`. Desk does not select
+paths, recover files or play them. Leaving Desk or losing its lease does not stop
+recording. After connection loss, the last observed take remains labelled stale with current
+outcome unknown. After a lost reply, reconnect read-only and inspect the take; never
+assume failure or repeat Start blindly. A restarted host cannot certify an old
+interrupted take; use the recorder owner's evidence-preserving recovery.
+
 ## When a control is unavailable
 
 Check connection, selected scope and control grant. **Q** releases your control

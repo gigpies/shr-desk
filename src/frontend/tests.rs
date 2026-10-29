@@ -16,6 +16,7 @@ fn complete_large_review_requires_all_rendered_pages() {
     .unwrap();
     let review=(0..80).map(|i|format!("target input-{i:02} current -6000 target -3000 delta3000 show/epoch/revision/scope ")).collect::<String>();
     f.state = Some(Update {
+        recorder: Default::default(),
         device: None,
         device_final: None,
         device_fresh: false,
@@ -102,6 +103,7 @@ fn active_bank_and_channel_selection_stay_visible_without_detail_overlap() {
     // Layout-only future-capacity fixture, not an accepted GP03 snapshot.
     snapshot.authority.inputs = (1..=36).map(|n| format!("input-{n:02}")).collect();
     f.state = Some(Update {
+        recorder: Default::default(),
         device: None,
         device_final: None,
         device_fresh: false,

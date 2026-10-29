@@ -8,6 +8,7 @@ use std::{
 
 mod fx;
 mod measurement;
+mod recorder;
 mod transport;
 #[cfg(test)]
 use crate::audio::Request;
@@ -102,6 +103,9 @@ struct HeldQuery {
 }
 type FxNotice = Box<dyn FnMut(&Session) + Send>;
 pub struct Operator {
+    pub(crate) recorder: crate::recorder::View,
+    record_requests: std::collections::VecDeque<audio::Request>,
+    record_query_failed: bool,
     fx_notice: Option<FxNotice>,
     paired_nonce: u64,
     paired_enabled: bool,
@@ -202,6 +206,9 @@ impl Operator {
         version: u8,
     ) -> Result<Self, String> {
         Ok(Self {
+            recorder: Default::default(),
+            record_requests: Default::default(),
+            record_query_failed: false,
             fx_notice: None,
             paired_nonce: 0,
             paired_enabled: false,
@@ -316,6 +323,10 @@ impl Operator {
     }
     pub(crate) fn reviewed(&self) -> Option<String> {
         self.draft.as_ref().map(|d| {
+            if crate::recorder::mutation(&d.kind) {
+                let tracks = self.recorder.observation.as_ref().map(|o|o.mapping.join(", ")).unwrap_or_default();
+                return format!("{} {} / revision {} / scope {} / show {} / epoch {}\nRaw tracks in stem order: {}\n{}\nAdmission is not recording success. Inspect preparing, recording, finalizing and finalized outcome. Durable frames remain UNKNOWN.",d.kind,d.body,d.revision,self.scope,self.session.snapshot_request().context.show_id,self.session.snapshot_request().context.epoch,tracks,if d.kind=="record_start" {"Create a NEW take under the provider private takes directory. Storage readiness is asynchronous."} else {"Quiesce this exact take, drain accepted frames and finalize. Incomplete/error outcomes preserve files for owner recovery."});
+            }
             if let Some(b)=&d.fx_basis { let m:crate::fx::Mutation=serde_json::from_value(d.body.clone()).expect("validated FX review"); return format!("{}\nAuthority revision {} / scope {} / show {} / epoch {}",crate::fx::review_lines(b,&m),d.revision,self.scope,self.session.snapshot_request().context.show_id,self.session.snapshot_request().context.epoch); }
             if d.kind=="pa_set" {return format!("{}\nMUTED WHOLE PA CONFIGURATION / revision {} / program buses {} / explicit rearm remains separate\n{}",d.measurement_review.as_deref().unwrap_or("Manual configuration"),d.revision,d.body["program_buses"],d.body["configuration_json"].as_str().and_then(|s|serde_json::from_str::<Value>(s).ok()).and_then(|v|serde_json::to_string_pretty(&v).ok()).unwrap_or_default());}
             if d.kind=="device_configure" {return format!("DEVICE CONFIGURATION / revision {} / separate rearm required\n{}",d.revision,serde_json::to_string_pretty(&d.body["config"]).unwrap_or_default());}
@@ -372,7 +383,8 @@ impl Operator {
         if matches!(
             contract,
             Some(
-                "GP21-fx"
+                "GP05-modules"
+                    | "GP21-fx"
                     | "GP20-measurement"
                     | "GP15-device"
                     | "GP15-brain"
@@ -398,6 +410,10 @@ impl Operator {
             contract: Option<String>,
         }
         let tag: Contract = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+        if tag.contract.as_deref() == Some("GP05-modules") {
+            self.record_reply(&crate::provider::parse_document(bytes)?)?;
+            return Ok(true);
+        }
         if tag.contract.as_deref() == Some(crate::fx::CONTRACT) {
             let v = crate::provider::parse_document(bytes)?;
             if v["state"] == "snapshot" {
@@ -2050,6 +2066,9 @@ impl Operator {
         self.mutate_inner(kind, body)
     }
     pub(crate) fn mutate_inner(&mut self, kind: &str, body: Value) -> Result<(), String> {
+        if crate::recorder::mutation(kind) {
+            return self.mutate_record(kind, body);
+        }
         if kind == "fx_configure" {
             return self.mutate_fx(body);
         }

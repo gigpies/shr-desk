@@ -92,6 +92,9 @@ fn paired(change_before_stage: bool) {
     let body = json!({"input":"input-01", "config":processing.channels[0].target});
     session.ingest_processing(processing, 0).unwrap();
     let mut op = Operator {
+        recorder: Default::default(),
+        record_requests: Default::default(),
+        record_query_failed: false,
         fx_notice: None,
         paired_nonce: 0,
         paired_enabled: false,

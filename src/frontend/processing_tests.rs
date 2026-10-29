@@ -541,6 +541,7 @@ fn surface() -> Frontend {
     .unwrap()
     .snapshot;
     f.state = Some(Update {
+        recorder: Default::default(),
         device: None,
         device_final: None,
         device_fresh: false,
@@ -775,6 +776,7 @@ fn exact_unshifted_editor_keyup_rearms_after_controller_fence() {
         let update = f.state.clone().unwrap();
         f.controller_removed();
         f.state = Some(Update {
+            recorder: Default::default(),
             generation: f.provider.generation(),
             received: Instant::now(),
             ..update
@@ -890,6 +892,7 @@ fn exact_context_pins_and_explicit_revalidation() {
     assert!(f.queue.is_empty());
     f.enqueue(Event::Focus(true)).unwrap();
     f.state = Some(Update {
+        recorder: Default::default(),
         generation: f.provider.generation(),
         received: Instant::now(),
         ..update

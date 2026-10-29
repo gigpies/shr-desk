@@ -220,3 +220,29 @@ The existing 30 ms proof, 20 ms mutation, 50 ms service/status, 150 ms deadman a
 64-document bounds are unchanged; compact proofs never refresh the full UI pair.
 This consumer correction is implemented with focused offline regressions; combined
 review/campaign and physical acceptance remain separate gates.
+
+## Integrated raw recording
+
+Recorder uses existing GP05-modules Start/Stop on the primary connection, with
+C-AUDIO's wire version, FOH lease, request counter and revision. It shares the
+presented review and input-generation gates. Readiness and final outcome come
+from strict module readback; accepted_pending/completed replies alone cannot
+claim capture, complete files or durability. Query-send time anchors freshness.
+The bounded nonce-less query retires write authority after failure; reconnect
+never replays a command. REC commands are excluded from automatic retries.
+Lost connections retain the last take identity as stale recovery evidence; its
+receipt is cleared, and a fresh observed no-take replaces it.
+
+Readback supports configured 1–64 raw tracks (the current REC v1 bound),
+independent of console banks and PA dimensions. Other module metadata does not
+grant recording authority. Take/operation identity fences Stop across reconnect;
+new names are generated and the provider refuses existing paths. Accepted,
+queued, written and durable are distinct; durability remains UNKNOWN even after
+finalized complete. Startup/storage/finalization error and integrity counters
+remain visible. Files and recovery belong to the host/REC, not Desk.
+
+GP05 health carries existing finite floating-point FX/PA metadata. The transport
+parser admits those three module metadata subtrees only for GP05 status (including
+a remote Reply payload); authority, configuration and REC fields remain strict
+integer JSON. Other contracts retain their original parser. Duplicate keys, size
+and depth bounds remain enforced. This changes no provider envelope or FX ABI.

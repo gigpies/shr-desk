@@ -64,3 +64,5 @@ pub mod spectrum;
 pub mod fullscreen_eq;
 
 pub mod controller_surface;
+
+pub mod recorder;

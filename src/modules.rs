@@ -70,7 +70,10 @@ impl<'de> Deserialize<'de> for Unique {
     }
 }
 fn parse(bytes: &[u8]) -> Result<Value, String> {
-    if bytes.len() > provider::MAX_BYTES {
+    parse_limit(bytes, provider::MAX_BYTES)
+}
+pub(crate) fn parse_limit(bytes: &[u8], limit: usize) -> Result<Value, String> {
+    if bytes.len() > limit {
         return Err("module frame capacity".into());
     }
     fn depth(v: &Value, n: usize) -> bool {

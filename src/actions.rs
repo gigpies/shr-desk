@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
+    Record(crate::recorder::Action),
     Console(crate::controller_surface::Command),
     Fx(crate::fx::Action),
     Measurement(crate::pa_measurement::editor::Action),

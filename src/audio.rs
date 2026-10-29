@@ -653,7 +653,10 @@ impl Request {
             let config = crate::brain_device::Config::decode(self.body["config"].clone())?;
             return serde_json::to_vec(&json!({"contract":"GP15-device","version":1,"show_id":c.show_id,"module":c.module,"epoch":c.epoch,"writer":c.writer,"lease":c.lease,"request_id":c.request_id,"expected_revision":c.expected_revision,"kind":"device_configure","body":{},"config":config})).map_err(|e|e.to_string());
         }
-        let contract = if matches!(self.kind.as_str(), "fx_snapshot" | "fx_configure") {
+        let contract = if crate::recorder::mutation(&self.kind) {
+            crate::recorder::validate_body(&self.body)?;
+            "GP05-modules"
+        } else if matches!(self.kind.as_str(), "fx_snapshot" | "fx_configure") {
             crate::fx::validate_body(&self.kind, &self.body)?;
             if self.version != 2
                 || (self.kind == "fx_configure") != c.writer.is_some()
@@ -2097,6 +2100,12 @@ impl Session {
     }
     fn validate_command(&self, kind: &str, body: &Value, now: u64) -> Result<(), String> {
         match kind {
+            "record_start" | "record_stop" => {
+                if self.scope != "foh" {
+                    return fail("REC requires FOH lease");
+                }
+                crate::recorder::validate_body(body)
+            }
             "fx_configure" => self.validate_fx_command(body, now),
             kind if crate::pa_measurement::wire::mutation(kind) => {
                 if self.version != 2
@@ -2317,7 +2326,12 @@ impl Session {
             || p.state == PendingState::Uncertain
             || matches!(
                 p.request.kind.as_str(),
-                "fx_configure" | "brain_hold" | "brain_heartbeat" | "brain_close"
+                "record_start"
+                    | "record_stop"
+                    | "fx_configure"
+                    | "brain_hold"
+                    | "brain_heartbeat"
+                    | "brain_close"
             )
         {
             return None;
@@ -2358,7 +2372,12 @@ impl Session {
         if p.state == PendingState::Uncertain
             || matches!(
                 p.request.kind.as_str(),
-                "fx_configure" | "brain_hold" | "brain_heartbeat" | "brain_close"
+                "record_start"
+                    | "record_stop"
+                    | "fx_configure"
+                    | "brain_hold"
+                    | "brain_heartbeat"
+                    | "brain_close"
             )
         {
             return None;
@@ -3329,5 +3348,19 @@ impl Session {
         self.preview = None;
         let _ = now;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn record_test_pending(request: Request) -> Pending {
+    Pending {
+        request,
+        first_send: 0,
+        state: PendingState::Sent,
+        ticket: None,
+        timing: None,
+        observed_frame: 0,
+        retry: 0,
+        monitor_device: None,
     }
 }
