@@ -123,13 +123,13 @@ impl Operator {
         let cfg = r
             .candidate_configuration_json
             .ok_or("owner candidate missing")?;
-        let proposal =
-            crate::pa_measurement::Proposal::decode(&crate::pa_measurement::owner_document(
-                r.owner_result_json
-                    .as_deref()
-                    .ok_or("owner proposal missing")?,
-            )?)?;
-        proposal.validate_candidate(
+        let proposal = crate::pa_measurement::owner_document(
+            r.owner_result_json
+                .as_deref()
+                .ok_or("owner proposal missing")?,
+        )?;
+        crate::pa_measurement::validate_candidate_document(
+            &proposal,
             &crate::master_eq::parse_owner(&r.basis.configuration_json)?,
             &crate::master_eq::parse_owner(&cfg)?,
         )?;

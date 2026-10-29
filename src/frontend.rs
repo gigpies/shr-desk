@@ -839,6 +839,7 @@ impl Frontend {
                             Action::Console(
                                 crate::controller_surface::Command::EntryAppend(_)
                                     | crate::controller_surface::Command::EntryBackspace
+                                    | crate::controller_surface::Command::ReviewPage(_)
                             ) | Action::ProcessingField(_)
                                 | Action::ProcessingAdjust(_)
                                 | Action::StructureField(_)
@@ -862,6 +863,10 @@ impl Frontend {
                     && self.width > 0
                     && self.height > 0
                 {
+                    let local_review = matches!(
+                        action,
+                        Action::Console(crate::controller_surface::Command::ReviewPage(_))
+                    );
                     let opens_editor = matches!(
                         action,
                         Action::ExactEdit(_)
@@ -879,14 +884,15 @@ impl Frontend {
                     }
                     // Match keyboard release behavior: unsent local field gestures
                     // must not fill the provider queue or delay paired observations.
-                    if (self.processing_draft.is_none()
-                        && self.structural_draft.is_none()
-                        && self.device_draft.is_none()
-                        && self.send_draft.is_none()
-                        && self.exact_draft.is_none()
-                        && self.fx_ui.text.is_none()
-                        && self.measurement_ui.editor.is_none())
-                        || opens_editor
+                    if !local_review
+                        && ((self.processing_draft.is_none()
+                            && self.structural_draft.is_none()
+                            && self.device_draft.is_none()
+                            && self.send_draft.is_none()
+                            && self.exact_draft.is_none()
+                            && self.fx_ui.text.is_none()
+                            && self.measurement_ui.editor.is_none())
+                            || opens_editor)
                     {
                         let _ = self.provider.send(None, Operation::InputReleased);
                     }
@@ -901,6 +907,8 @@ impl Frontend {
                     self.pressed.remove(&key);
                     self.blocked.remove(&key);
                     if self.focused
+                        && !(self.review_id.is_some()
+                            && matches!(key.as_str(), "PageUp" | "PageDown"))
                         && ((self.processing_draft.is_none()
                             && self.structural_draft.is_none()
                             && self.device_draft.is_none()
@@ -3386,10 +3394,7 @@ impl Frontend {
                         },
                         path,
                         draft
-                            .document
-                            .pointer(path)
-                            .unwrap()
-                            .to_string()
+                            .field_display(path)
                             .chars()
                             .take(100)
                             .collect::<String>()

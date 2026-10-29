@@ -71,12 +71,18 @@ pub fn is_kind(k: &str) -> bool {
             | "capture_start"
             | "capture_cancel"
             | "measurement_propose"
+            | "measurement_overlap"
+            | "measurement_eq"
     )
 }
 pub fn mutation(k: &str) -> bool {
     matches!(
         k,
-        "capture_start" | "capture_cancel" | "measurement_propose"
+        "capture_start"
+            | "capture_cancel"
+            | "measurement_propose"
+            | "measurement_overlap"
+            | "measurement_eq"
     )
 }
 fn id(v: &Value) -> Result<(), String> {
@@ -149,7 +155,24 @@ pub fn validate_body(k: &str, b: &Value, s: Option<&Snapshot>) -> Result<(), Str
                 }
             }
         }
-        "measurement_propose" => {
+        "measurement_eq" => {
+            provider::keys(b, &["id", "captures", "target"])?;
+            id(&b["id"])?;
+            let captures = b["captures"].as_array().ok_or("EQ captures")?;
+            if captures.is_empty()
+                || captures.len() > 4
+                || !matches!(
+                    b["target"].as_str(),
+                    Some("flat" | "bass_shaped" | "damped_high_frequency")
+                )
+            {
+                return Err("EQ bounds/target".into());
+            }
+            for capture in captures {
+                id(capture)?;
+            }
+        }
+        "measurement_propose" | "measurement_overlap" => {
             provider::keys(b, &["id", "pairs"])?;
             id(&b["id"])?;
             let ps = b["pairs"].as_array().ok_or("capture pairs")?;
@@ -346,7 +369,15 @@ impl Reply {
             s.basis.validate()?;
             if let Some(j) = &s.owner_result_json {
                 let doc = super::owner_document(j)?;
-                if let Some(c) = doc.get("capture").or_else(|| doc.get("basis_capture")) {
+                let identity = if doc["contract"] == "C-PA-OVERLAP-REVIEW" {
+                    &doc["proposal"]
+                } else {
+                    &doc
+                };
+                if let Some(c) = identity
+                    .get("capture")
+                    .or_else(|| identity.get("basis_capture"))
+                {
                     if c["source_epoch"] != s.basis.source_epoch
                         || c["map_revision"] != s.basis.map_revision
                         || c["configuration_revision"] != s.basis.graph_generation
@@ -366,8 +397,8 @@ impl Reply {
                         .as_deref()
                         .ok_or("candidate owner result")?,
                 )?;
-                let proposal = super::Proposal::decode(&doc)?;
-                proposal.validate_candidate(
+                super::validate_candidate_document(
+                    &doc,
                     &crate::master_eq::parse_owner(&s.basis.configuration_json)?,
                     &candidate,
                 )?;

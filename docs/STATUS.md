@@ -723,3 +723,11 @@ was merged with the task0015 source without changing Rust, dependencies or runti
 behavior. The companion Lightdesk collection contains 16 references. See the
 [audio reference library](console-screen-reference/README.md); these are design
 inputs, not newly implemented screens or physical-console acceptance.
+
+## Offline PA setup extension
+
+[PA review](PA_MEASUREMENT.md) supports distance entry, explicit GP20 v2 overlap
+and EQ requests, predicted response/PEQ review and the existing muted transaction.
+Calibration/sweep analysis remains an offline PA-owner operation; imported owner
+configurations are manual edits, never authenticated GP20 capture evidence.
+Physical measurement remains unavailable; [DS-PA-SETUP](archive/pa-setup-2026-10-29.md) records software validation.

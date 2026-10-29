@@ -27,8 +27,8 @@ proposed, no_change or refused. No-change/refusal never creates a PA transaction
 
 A selects a proposal for the existing muted whole-configuration review. Desk
 checks its exact current source/map/graph/configuration/program-bus basis and
-verifies that the supplied candidate changes only the owner-declared delay and
-polarity fields. Outputs must already be muted/quiesced. The full configuration
+verifies that the supplied candidate changes only the owner-declared delay/polarity
+fields or explicitly proposed output PEQ slots. Outputs must already be muted/quiesced. The full configuration
 is reviewed and applied with GP14; rearm remains an independent explicit action.
 A successful capture, proposal or ACK is not an acoustic alignment claim.
 
@@ -57,3 +57,33 @@ unsent review; `measurement cancel ID` prepares cancellation of an active job an
 requires confirmation. `Y`/`measurement probe` explicitly refreshes progress and
 results. Repeated requests do not restart captures. The page's stored descriptions
 are observations, not a continuously renewed permission to write.
+
+## Distance, crossover overlap and EQ review
+
+In the detached F9 PA editor, delay fields accept `1m`, `34.3cm`, `1ms` or bare
+milliseconds. Only the owner's `delay_ms` is sent. Display includes requested and
+sample-rounded milliseconds, samples, metres and centimetres at 343 m/s. This is
+added acoustic path equivalent, not a measured distance. Input/output meanings
+and 100/10 ms limits remain unchanged. Owner validation remains authoritative.
+
+The P proposal editor also accepts `overlap ID ANCHOR TARGET [ANCHOR TARGET ...]`
+and `eq ID flat|bass_shaped|damped_high_frequency CAPTURE [CAPTURE ...]`.
+These explicitly send GP20 request version 2. Original P entries keep version 1.
+Old providers may refuse v2; no automatic fallback or application occurs.
+
+Overlap reviews show every predicted combined-response bin separately from the
+measured transfer, selected analysis band and proposed sample/distance/polarity
+changes. EQ reviews show the explicit target, each proposed bell, predicted RMS
+error and required extra headroom. They use the same A → muted full-configuration
+review → explicit confirm path. Rearm remains separate; no-change/refusal applies
+nothing. Current capture/configuration identity, cancellation and freshness checks
+still apply. Algorithms and numerical definitions belong to
+[SHR PA offline setup](../../shr-pa/docs/OFFLINE_SETUP.md).
+
+Calibration and repeated-sweep extraction are currently offline owner operations.
+Their provenance-bearing documents can be inspected off-device; GP20 does not
+accept arbitrary imported files as authenticated capture evidence. The PA owner
+can produce a detached EQ configuration for explicit F9 import/review; such an
+import is a manual configuration transaction, not a GP20 measurement acceptance.
+
+[Software validation record](archive/pa-setup-2026-10-29.md).

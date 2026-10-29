@@ -15,7 +15,7 @@ fn owner_measurements_keep_units_uncertainty_and_complete_spectrum_visible() {
     let v = measured();
     let m = Measurement::decode(&v).unwrap();
     let lines = m.lines();
-    assert_eq!(lines.len(), 7 + m.spectrum.len());
+    assert_eq!(lines.len(), 8 + m.spectrum.len());
     assert!(lines.iter().any(|s| s.contains("acoustic verification")));
     assert!(
         lines
@@ -206,4 +206,49 @@ fn gp20_current_basis_epoch_fenced_but_historical_results_retained() {
         }
     }
     assert!(checked);
+}
+
+#[test]
+fn successor_commands_are_explicit_and_keep_old_proposal_entry() {
+    use shr_desk::pa_measurement::editor::{Editor, Operation, parse};
+    for (text, expected) in [
+        ("overlap p a b", "measurement_overlap"),
+        ("eq e flat a", "measurement_eq"),
+        ("p a b", "measurement_propose"),
+    ] {
+        let Operation::Review { kind, .. } = parse(Editor::Propose, text).unwrap() else {
+            panic!()
+        };
+        assert_eq!(kind, expected);
+    }
+    assert!(parse(Editor::Propose, "eq e arbitrary a").is_err());
+}
+
+#[test]
+fn distance_field_entry_roundtrips_and_preserves_detached_document() {
+    let snapshot =
+        shr_desk::structure::decode_snapshot(include_bytes!("fixtures/gp14/v1/structure-16.json"))
+            .unwrap();
+    let mut draft = shr_desk::structure::Draft::new(&snapshot, "pa_configuration", 1).unwrap();
+    draft.selected = draft
+        .fields
+        .iter()
+        .position(|p| p.starts_with("/configuration/outputs/") && p.ends_with("/delay_ms"))
+        .unwrap();
+    let path = draft.fields[draft.selected].clone();
+    for text in ["3.43m", "343cm", "10ms", "10"] {
+        draft.text(text).unwrap();
+        assert!((draft.document.pointer(&path).unwrap().as_f64().unwrap() - 10.).abs() < 1e-12);
+    }
+    let before = draft.document.clone();
+    for text in ["3.44m", "NaN", "-1cm", "1mm"] {
+        assert!(draft.text(text).is_err());
+        assert_eq!(draft.document, before);
+    }
+    let description = draft.field_display(&path);
+    assert!(description.contains("480 samples"));
+    assert!(description.contains("343 cm"));
+    assert!(description.contains("added path"));
+    draft.text("0cm").unwrap();
+    assert_eq!(draft.document.pointer(&path).unwrap().as_f64(), Some(0.));
 }

@@ -66,7 +66,8 @@ fn confirm(f: &mut Frontend, end: Instant) {
             && f.state.as_ref().is_some_and(|s| {
                 s.review.is_none()
                     && s.last_operation.as_ref().is_some_and(|s| {
-                        s.contains("accepted at frame") || s.contains("applied revision")
+                        !s.starts_with("renew ")
+                            && (s.contains("accepted at frame") || s.contains("applied revision"))
                     })
             })
     });
@@ -193,7 +194,7 @@ fn actual_keyboard_measurement_to_muted_owner_apply() {
             .unwrap();
         evidence.push(serde_json::to_value(record).unwrap());
     }
-    form(&mut f, "P", "align a1 b1 a2 b2");
+    form(&mut f, "P", "overlap align a1 b1 a2 b2");
     confirm(&mut f, end);
     result(&mut f, end, "align", "proposed");
     let proposal = f
@@ -276,7 +277,29 @@ fn actual_keyboard_measurement_to_muted_owner_apply() {
                     .is_some_and(|x| x.contains("basis changed") || x.contains("did not propose"))
         })
     });
-    fs::write(root.join("desk-acceptance.json"),serde_json::to_vec_pretty(&json!({"physical":false,"captures":evidence,"proposal":proposal,"readback":current,"rearm":false,"cancelled_review":true,"capture_cancelled":true,"no_change":no_change,"stale_proposal_refused":true})).unwrap()).unwrap();
+    form(&mut f, "P", "eq room-eq damped_high_frequency n1");
+    confirm(&mut f, end);
+    result(&mut f, end, "room-eq", "proposed");
+    let eq_proposal = f
+        .state
+        .as_ref()
+        .unwrap()
+        .measurement
+        .result
+        .clone()
+        .unwrap();
+    let eq_candidate = eq_proposal.candidate_configuration_json.clone().unwrap();
+    form(&mut f, "A", "room-eq");
+    confirm(&mut f, end);
+    wait(&mut f, end, "EQ muted owner readback", |f| {
+        f.state
+            .as_ref()
+            .and_then(|s| s.structural.as_ref())
+            .is_some_and(|s| {
+                s.outputs_quiesced && s.pa_configuration_json.as_ref() == Some(&eq_candidate)
+            })
+    });
+    fs::write(root.join("desk-acceptance.json"),serde_json::to_vec_pretty(&json!({"physical":false,"captures":evidence,"proposal":proposal,"readback":current,"eq_proposal":eq_proposal,"eq_candidate":eq_candidate,"rearm":false,"cancelled_review":true,"capture_cancelled":true,"no_change":no_change,"stale_proposal_refused":true})).unwrap()).unwrap();
     let scene = f.scene();
     assert!(scene.in_bounds());
     fs::write(

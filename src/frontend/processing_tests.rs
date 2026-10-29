@@ -1633,3 +1633,32 @@ fn meters_preserve_master_eq_shortcuts_and_local_drafts() {
         "browsing never sends a control operation"
     );
 }
+
+#[test]
+fn review_navigation_does_not_fill_provider_release_queue() {
+    let (mut f, rx) = master_surface();
+    f.state.as_mut().unwrap().review = Some((10, "review line\n".repeat(100)));
+    f.synchronize_review();
+    for _ in 0..24 {
+        for pressed in [true, false] {
+            f.enqueue(Event::Key {
+                key: "PageDown".into(),
+                pressed,
+            })
+            .unwrap();
+            f.pump();
+        }
+    }
+
+    for _ in 0..24 {
+        f.inject_controller(Action::Console(
+            crate::controller_surface::Command::ReviewPage(1),
+        ))
+        .unwrap();
+        f.pump();
+    }
+    assert!(
+        rx.try_recv().is_err(),
+        "local review navigation must not send provider traffic"
+    );
+}

@@ -328,6 +328,30 @@ impl Draft {
         if text.len() > 48 * 1024 {
             return Err("field entry capacity".into());
         }
+        if self.kind == "pa_set" && self.fields[self.selected].ends_with("/delay_ms") {
+            let path = self.fields[self.selected].clone();
+            let maximum = if path.starts_with("/configuration/inputs/") {
+                100.
+            } else {
+                10.
+            };
+            let text = text.trim();
+            let (n, scale) = if let Some(n) = text.strip_suffix("cm") {
+                (n, 10. / 343.)
+            } else if let Some(n) = text.strip_suffix("ms") {
+                (n, 1.)
+            } else if let Some(n) = text.strip_suffix('m') {
+                (n, 1000. / 343.)
+            } else {
+                (text, 1.)
+            };
+            let ms = n.trim().parse::<f64>().map_err(|_| "delay number/unit")? * scale;
+            if !ms.is_finite() || !(0.0..=maximum).contains(&ms) {
+                return Err("delay outside owner bounds".into());
+            }
+            *self.document.pointer_mut(&path).ok_or("delay field")? = serde_json::json!(ms);
+            return Ok(());
+        }
         let value: Value = serde_json::from_str(text)
             .or_else(|e| {
                 if self.master_eq.is_some() && self.fields[self.selected].ends_with("/kind") {
@@ -422,6 +446,28 @@ impl Draft {
             return Err("field not adjustable".into());
         }
         Ok(())
+    }
+    /// Display the actual integer-sample setting, not extra acoustic precision.
+    pub fn field_display(&self, path: &str) -> String {
+        let value = self.document.pointer(path).unwrap_or(&Value::Null);
+        if path.ends_with("/delay_ms")
+            && let (Some(ms), Some(rate)) = (
+                value.as_f64(),
+                self.document["configuration"]["sample_rate"].as_u64(),
+            )
+            && rate > 0
+            && ms.is_finite()
+            && ms >= 0.
+        {
+            let samples = (ms * rate as f64 / 1000.).round();
+            let applied = samples * 1000. / rate as f64;
+            return format!(
+                "{ms} ms requested; {samples} samples = {applied:.3} ms ~{:.2} m / {:.0} cm added path (343 m/s)",
+                applied * 0.343,
+                applied * 34.3
+            );
+        }
+        value.to_string()
     }
     pub fn body(&self) -> Result<Value, String> {
         if let Some(context) = &self.live_context {

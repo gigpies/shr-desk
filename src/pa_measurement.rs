@@ -1,6 +1,7 @@
 //! Read-only PA measurement documents. Analysis and candidate construction remain
 //! in SHR PA; these bounded descriptions never grant configuration authority.
 pub mod editor;
+pub mod eq;
 pub mod wire;
 use crate::provider;
 use serde::{Deserialize, Serialize};
@@ -196,6 +197,10 @@ impl Measurement {
             } else {
                 format!("Not eligible for correction: {}", self.reasons.join(", "))
             },
+            format!(
+                "Measured software transfer / band {:.1}..{:.1} Hz / acoustics unverified",
+                self.options.band_hz[0], self.options.band_hz[1]
+            ),
             "Frequency Hz | transfer dB | phase degrees | coherence".into(),
         ];
         for bin in &self.spectrum {
@@ -241,6 +246,13 @@ pub struct Proposal {
 }
 impl Proposal {
     pub fn decode(value: &Value) -> Result<Self, String> {
+        if value["contract"] == "C-PA-OVERLAP-REVIEW" {
+            crate::provider::keys(value, &["contract", "version", "proposal", "predictions"])?;
+            if value["version"] != 1 {
+                return Err("overlap version".into());
+            }
+            return Self::decode(&value["proposal"]);
+        }
         if serde_json::to_vec(value).map_err(|e| e.to_string())?.len() > 64 * 1024 {
             return Err("PA result document bound".into());
         }
@@ -345,6 +357,7 @@ impl Proposal {
             ),
         ];
         for c in &self.changes {
+            lines.push(format!("Added path equivalent: ~{:.2} -> {:.2} m ({:.0} -> {:.0} cm), 343 m/s; integer samples", f64::from(c.before_delay_samples) * 343. / 48000., f64::from(c.after_delay_samples) * 343. / 48000., f64::from(c.before_delay_samples) * 34300. / 48000., f64::from(c.after_delay_samples) * 34300. / 48000.));
             lines.push(format!(
                 "Output index {}: delay {:.3} -> {:.3} ms; polarity {} -> {}",
                 c.output_index,
@@ -377,11 +390,45 @@ impl Proposal {
 pub fn owner_document(text: &str) -> Result<Value, String> {
     let value = crate::master_eq::parse_owner_bounded(text, 64 * 1024)?;
     match value["contract"].as_str() {
+        Some("C-PA-EQ-PROPOSAL") => {
+            eq::validate(&value)?;
+        }
         Some("C-PA-MEASUREMENT-RESULT") => {
             Measurement::decode(&value)?;
         }
         Some("C-PA-ALIGNMENT-PROPOSAL") => {
             Proposal::decode(&value)?;
+        }
+        Some("C-PA-OVERLAP-REVIEW") => {
+            Proposal::decode(&value)?;
+            let positions = value["predictions"]
+                .as_array()
+                .ok_or("predicted positions")?;
+            if positions.len() > 8 {
+                return Err("predicted position bound".into());
+            }
+            for bins in positions {
+                let bins: Vec<Bin> =
+                    serde_json::from_value(bins.clone()).map_err(|e| e.to_string())?;
+                let mut previous = 0.;
+                if bins.len() > 64 {
+                    return Err("predicted bin bound".into());
+                }
+                for b in bins {
+                    if ![b.frequency_hz, b.magnitude, b.phase_radians, b.coherence]
+                        .iter()
+                        .all(|v| v.is_finite())
+                        || b.frequency_hz <= previous
+                        || !(20.0..=20000.0).contains(&b.frequency_hz)
+                        || b.magnitude < 0.
+                        || b.phase_radians.abs() > std::f64::consts::PI
+                        || !(0.0..=1.0).contains(&b.coherence)
+                    {
+                        return Err("invalid prediction".into());
+                    }
+                    previous = b.frequency_hz;
+                }
+            }
         }
         Some("C-PA-MEASUREMENT-REFUSAL") => {
             provider::keys(&value, &["contract", "version", "status", "reason"])?;
@@ -403,11 +450,45 @@ pub fn owner_document(text: &str) -> Result<Value, String> {
 pub fn owner_lines(text: &str) -> Result<Vec<String>, String> {
     let value = owner_document(text)?;
     match value["contract"].as_str() {
+        Some("C-PA-EQ-PROPOSAL") => eq::lines(&value),
         Some("C-PA-MEASUREMENT-RESULT") => Ok(Measurement::decode(&value)?.lines()),
         Some("C-PA-ALIGNMENT-PROPOSAL") => Ok(Proposal::decode(&value)?.lines()),
+        Some("C-PA-OVERLAP-REVIEW") => {
+            let mut lines = Proposal::decode(&value)?.lines();
+            lines.push("PREDICTED combined response — software model, acoustics unverified".into());
+            for (i, bins) in value["predictions"].as_array().unwrap().iter().enumerate() {
+                lines.push(format!(
+                    "Position {} / Hz | predicted dB | predicted phase degrees",
+                    i + 1
+                ));
+                let bins: Vec<Bin> =
+                    serde_json::from_value(bins.clone()).map_err(|e| e.to_string())?;
+                for b in bins {
+                    lines.push(format!(
+                        "{:.1} | {:.2} | {:.1}",
+                        b.frequency_hz,
+                        20. * b.magnitude.max(1e-12).log10(),
+                        b.phase_radians.to_degrees()
+                    ));
+                }
+            }
+            Ok(lines)
+        }
         _ => Ok(vec![
             format!("PA owner refused: {}", value["reason"]),
             "No correction or acoustic success is implied.".into(),
         ]),
+    }
+}
+
+pub fn validate_candidate_document(
+    doc: &Value,
+    base: &Value,
+    candidate: &Value,
+) -> Result<(), String> {
+    if doc["contract"] == "C-PA-EQ-PROPOSAL" {
+        eq::candidate(doc, base, candidate)
+    } else {
+        Proposal::decode(doc)?.validate_candidate(base, candidate)
     }
 }

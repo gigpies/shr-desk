@@ -29,7 +29,7 @@ impl Editor {
             Self::Cancel => "CAPTURE_ID (explicit cancellation, does not undo completed results)",
             Self::Result => "RESULT_ID (read only; includes uncertainty and every spectral bin)",
             Self::Propose => {
-                "PROPOSAL_ID ANCHOR_CAPTURE TARGET_CAPTURE [ANCHOR TARGET ... up to8positions]"
+                "[overlap] ID ANCHOR TARGET [...] | eq ID flat|bass_shaped|damped_high_frequency CAPTURE [...]"
             }
             Self::Apply => {
                 "PROPOSAL_ID (fresh basis; muted whole configuration review; rearm separate)"
@@ -79,6 +79,28 @@ pub fn parse(editor: Editor, text: &str) -> Result<Operation, String> {
             .parse::<u64>()
             .map_err(|_| "unsigned integer field required".to_string())
     };
+    if editor == Editor::Propose && f.first() == Some(&"eq") {
+        if f.len() < 4 {
+            return Err(
+                "eq ID flat|bass_shaped|damped_high_frequency CAPTURE [CAPTURE ...]".into(),
+            );
+        }
+        let body = json!({"id":f[1],"target":f[2],"captures":f[3..]});
+        super::wire::validate_body("measurement_eq", &body, None)?;
+        return Ok(Operation::Review {
+            kind: "measurement_eq".into(),
+            body,
+        });
+    }
+    if editor == Editor::Propose && f.first() == Some(&"overlap") {
+        let Operation::Review { body, .. } = parse(editor, &f[1..].join(" "))? else {
+            unreachable!()
+        };
+        return Ok(Operation::Review {
+            kind: "measurement_overlap".into(),
+            body,
+        });
+    }
     let op = match editor {
         Editor::Capture if f.len() == 9 => Operation::Review {
             kind: "capture_start".into(),
