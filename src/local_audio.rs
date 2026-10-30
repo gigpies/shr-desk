@@ -7,6 +7,7 @@ use std::{
 };
 
 mod fx;
+mod fx_aux;
 mod measurement;
 mod recorder;
 mod transport;
@@ -278,23 +279,27 @@ impl Operator {
     }
     pub(crate) fn review_valid(&self) -> bool {
         self.draft.as_ref().is_some_and(|d| {
-            d.fx_basis.as_ref().is_none_or(|b| {
-                self.session
-                    .fx
-                    .snapshot
-                    .as_ref()
-                    .and_then(|s| s.observation.as_ref())
-                    .is_some_and(|o| b.same_basis(o))
-                    && !self.session.fx.unknown
-                    && self.session.fx_fresh(self.now())
-            }) && d.measurement_basis.as_ref().is_none_or(|b| {
-                self.session
-                    .measurement
-                    .snapshot
-                    .as_ref()
-                    .and_then(|s| s.current_basis.as_ref())
-                    == Some(b)
-            }) && self.session.generation() == d.generation
+            (d.kind != "fx_aux_configure"
+                || self.session.fx_aux.validate(&d.body, self.now()).is_ok())
+                && d.fx_basis.as_ref().is_none_or(|b| {
+                    self.session
+                        .fx
+                        .snapshot
+                        .as_ref()
+                        .and_then(|s| s.observation.as_ref())
+                        .is_some_and(|o| b.same_basis(o))
+                        && !self.session.fx.unknown
+                        && self.session.fx_fresh(self.now())
+                })
+                && d.measurement_basis.as_ref().is_none_or(|b| {
+                    self.session
+                        .measurement
+                        .snapshot
+                        .as_ref()
+                        .and_then(|s| s.current_basis.as_ref())
+                        == Some(b)
+                })
+                && self.session.generation() == d.generation
                 && d.monitor_device
                     .as_ref()
                     .is_none_or(|pin| self.session.validate_monitor_device(pin).is_ok())
@@ -326,6 +331,9 @@ impl Operator {
             if crate::recorder::mutation(&d.kind) {
                 let tracks = self.recorder.observation.as_ref().map(|o|o.mapping.join(", ")).unwrap_or_default();
                 return format!("{} {} / revision {} / scope {} / show {} / epoch {}\nRaw tracks in stem order: {}\n{}\nAdmission is not recording success. Inspect preparing, recording, finalizing and finalized outcome. Durable frames remain UNKNOWN.",d.kind,d.body,d.revision,self.scope,self.session.snapshot_request().context.show_id,self.session.snapshot_request().context.epoch,tracks,if d.kind=="record_start" {"Create a NEW take under the provider private takes directory. Storage readiness is asynchronous."} else {"Quiesce this exact take, drain accepted frames and finalize. Incomplete/error outcomes preserve files for owner recovery."});
+            }
+            if d.kind=="fx_aux_configure" {
+                return crate::fx_aux::review_lines(&d.body,self.session.fx_aux.snapshot.as_ref());
             }
             if let Some(b)=&d.fx_basis { let m:crate::fx::Mutation=serde_json::from_value(d.body.clone()).expect("validated FX review"); return format!("{}\nAuthority revision {} / scope {} / show {} / epoch {}",crate::fx::review_lines(b,&m),d.revision,self.scope,self.session.snapshot_request().context.show_id,self.session.snapshot_request().context.epoch); }
             if d.kind=="pa_set" {return format!("{}\nMUTED WHOLE PA CONFIGURATION / revision {} / program buses {} / explicit rearm remains separate\n{}",d.measurement_review.as_deref().unwrap_or("Manual configuration"),d.revision,d.body["program_buses"],d.body["configuration_json"].as_str().and_then(|s|serde_json::from_str::<Value>(s).ok()).and_then(|v|serde_json::to_string_pretty(&v).ok()).unwrap_or_default());}
@@ -385,6 +393,7 @@ impl Operator {
             Some(
                 "GP05-modules"
                     | "GP21-fx"
+                    | "GP-FX-aux"
                     | "GP20-measurement"
                     | "GP15-device"
                     | "GP15-brain"
@@ -412,6 +421,10 @@ impl Operator {
         let tag: Contract = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
         if tag.contract.as_deref() == Some("GP05-modules") {
             self.record_reply(&crate::provider::parse_document(bytes)?)?;
+            return Ok(true);
+        }
+        if tag.contract.as_deref() == Some(crate::fx_aux::CONTRACT) {
+            // Explicit paired probes own freshness. Retained replies cannot complete a later edit.
             return Ok(true);
         }
         if tag.contract.as_deref() == Some(crate::fx::CONTRACT) {
@@ -2069,6 +2082,9 @@ impl Operator {
         if crate::recorder::mutation(kind) {
             return self.mutate_record(kind, body);
         }
+        if kind == "fx_aux_configure" {
+            return self.mutate_fx_aux(body);
+        }
         if kind == "fx_configure" {
             return self.mutate_fx(body);
         }
@@ -2426,6 +2442,18 @@ impl Operator {
                     .is_none_or(|s| s.authority.revision != d.revision)
             {
                 return Err("processing confirmation context changed during paired refresh".into());
+            }
+        }
+        if d.kind == "fx_aux_configure" {
+            self.refresh_fx_aux(false)?;
+            self.session.fx_aux.validate(&d.body, self.now())?;
+            if self
+                .session
+                .snapshot
+                .as_ref()
+                .is_none_or(|s| s.authority.revision != d.revision)
+            {
+                return Err("FX aux authority changed; review again".into());
             }
         }
         if let Some(basis) = &d.fx_basis {

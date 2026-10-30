@@ -1,5 +1,29 @@
 # Dated implementation evidence
 
+## 2026-10-30 — four FX auxes through Brain
+
+Desk exposes four ordinary FX aux sends, one provider effect per aux and wet
+returns to Main. Existing monitor buses remain independent. The named palette,
+parameter bounds, tempo divisions, bypass, panic and settlement come from actual
+SHR FX owners. The [operating guide](FX.md) describes the controls; the existing
+[shared GP-FX card](https://github.com/gigpies/gigpies/blob/main/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-fx--writable-owner-effects-in-the-console)
+owns integration state, exact artifacts and consumer requirements.
+
+Complete default/native normal suites passed **361/364 tests**, respectively,
+with 27 explicit opt-ins ignored in each. Both all-target warnings-denied Clippy
+configurations, both release builds, formatting, local document links and nine
+Python publication checks passed. The final actual
+Frontend episode against the rebuilt synthetic GigPies executable passed send
+edits, direct tape echo selection, BPM/division/modifier, another aux's room,
+bypass, panic, cancellation and read-only reconnect. Actual local and Brain
+producer fixtures protect the codec and media-session binding. GigPies separately
+verified authenticated Brain transport, wet samples and unchanged monitors.
+
+Aux configuration is runtime-only and is not saved in shows. UI reconnect retains
+sound; a new Brain owner session starts with zero sends. Physical mapping,
+aggregate headroom, latency and dry-plus-wet listening remain unqualified.
+No physical device or service was activated; no commit or publication was made.
+
 ## Task0020 actual remote FOH FX operator package
 
 The GP21-fx:1 consumer and [FX page](FX.md) are implemented for one actual Brain

@@ -37,6 +37,11 @@ this change does not create a speculative `shr-mix` repository or move DSP.
   SHR LUX <----- source activity / show cues, outside the audio path
 ```
 
+The four-aux mode sends four stereo buses to Brain and returns four stereo wet
+results to Stagebox Main on the source timeline. An explicit local source-host
+variant and the legacy Brain stereo delay remain compatible alternatives. See [FX controls](FX.md) and the
+[owning host contract](../../gigpies/docs/reference/REMOTE_FX_CONTROL.md).
+
 The window, MIDI adapter, recorder observer and analysis panes can disappear
 without stopping the Stagebox. A display restart reconnects to current state;
 it never recalls yesterday's scene. Engine-held human overrides survive UI loss.

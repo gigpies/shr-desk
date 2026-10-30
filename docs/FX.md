@@ -1,4 +1,63 @@
-# Actual remote FOH stereo FX operator controls
+# Effects sends and returns
+
+## Four FX auxes
+
+Open **Menu → FX auxes**. Select an input in Mix, then set its send to FX1,
+FX2, FX3 or FX4. Each aux has its own effect and wet return to Main. Sends follow
+channel fader, mute and pan; they start at zero. Monitor buses remain separate,
+with their existing pre/post send choices and physical outputs.
+
+The current provider offers digital delay, room, small room, chamber, plate,
+hall, tape echo, chorus, warm exciter and bright exciter. Reverb damping adjusts
+darkness; these are economical algorithms, not hardware-emulation claims.
+
+Use **Control FX auxes**, probe, then **G / Grant** for the existing FX scope.
+Choose an effect directly by name from the semantic menu; no intermediate
+effects need to be applied. Use previous/next aux and field; decrease/increase
+edits the selected field. The same actions work through the configured controller.
+Every sounding edit uses the ordinary complete review and separate confirmation.
+Cancelling a review leaves the current sound intact. Scope switching reconnects
+read-only and never restores a previous grant automatically.
+
+On the FX aux page, **[ / ]** selects an aux, **A / D** chooses an effect,
+**Up / Down** chooses a field, and **− / +** changes its value. Fields are the
+selected input's send, effect time, amount, damping/tone, rate/tune, return level,
+BPM, note division and rhythmic modifier. **W** probes and **X** selects the FX
+scope. Return and send levels are linear 0..1. Delay time and reverb predelay are
+milliseconds. Algorithm-specific ranges/defaults come from the provider:
+reverb amount is normalized decay and higher damping is darker; exciter amount
+is drive, higher tone is brighter, and tune is Hz. Unavailable parameters refuse.
+Chorus base time/depth must also remain within the owner's joint bounds.
+
+Digital delay and tape echo offer free time or BPM with 1/1, 1/2, 1/4, 1/8, 1/16,
+1/32 and 1/64 notes, straight/dotted/triplet. Editing milliseconds selects free
+time. Divisions outside the provider's 2-second capacity refuse visibly.
+These are intentional effect times; the configured Brain return-transport delay
+comes on top. Total physical path latency is not measured or compensated here.
+No external clock or physical tap controller is acquired by this integration.
+
+**Space / FX aux bypass** stops new excitation and lets the tail drain.
+**P / Clear FX aux tail** clears that aux at the confirmed source boundary;
+new input can excite it again. Brain controls use a 100ms scheduling lead. Panic can interrupt an unsettled change: an unswapped replacement is
+cancelled and readback shows the actual active settings. For sustained silence, turn down its send/return or use bypass. Changing
+algorithm/parameters uses the owner's bounded fade/swap transition and replaces
+old history; it is not a tail-preserving preset morph.
+
+The page shows all four effects/returns, changing versus settled state and owner
+faults.
+A prepared/accepted edit is not completion: Desk waits for actual settled owner
+readback. Unknown outcomes require explicit probe and a new review; no replay.
+Four-aux capability requires the configured Brain palette owner (or the explicit
+local source-host variant).
+It is unavailable on older providers; Desk never substitutes simulator state.
+The normal four-aux path sends four stereo buses to Brain and returns their wet
+results to Main. The legacy Brain stereo delay remains a separate compatible path.
+UI reconnect retains the sounding configuration. Process restart or a new Brain
+owner session resets sends to zero; auxes are not yet part of saved shows. Source recovery preserves send
+intent but requires explicit output rearm. Physical aggregate performance and
+listening are still unqualified.
+
+## Legacy remote stereo delay
 
 GP21-fx:1 controls one actual Brain owner, ordered `foh-left`, `foh-right`.
 GP05 fixed local fallback health keeps its existing read-only meaning. This page

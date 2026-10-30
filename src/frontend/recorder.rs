@@ -23,6 +23,7 @@ impl Frontend {
             self.mode_picker = false;
             self.record_page = true;
             self.fx_ui.open = false;
+            self.fx_aux_ui.open = false;
             self.measurement_ui.open = false;
             return self.send(Operation::Record(O::Probe));
         }

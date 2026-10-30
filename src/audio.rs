@@ -656,6 +656,16 @@ impl Request {
         let contract = if crate::recorder::mutation(&self.kind) {
             crate::recorder::validate_body(&self.body)?;
             "GP05-modules"
+        } else if matches!(self.kind.as_str(), "fx_aux_snapshot" | "fx_aux_configure") {
+            if self.kind == "fx_aux_configure" {
+                crate::fx_aux::validate_body(&self.body)?;
+            } else if self.body != json!({}) {
+                return fail("FX aux read body");
+            }
+            if (self.kind == "fx_aux_configure") != c.writer.is_some() {
+                return fail("FX aux request authority");
+            }
+            crate::fx_aux::CONTRACT
         } else if matches!(self.kind.as_str(), "fx_snapshot" | "fx_configure") {
             crate::fx::validate_body(&self.kind, &self.body)?;
             if self.version != 2
@@ -686,7 +696,7 @@ impl Request {
         } else {
             "C-AUDIO"
         };
-        let v = json!({"contract":contract,"version":if matches!(self.kind.as_str(),"measurement_overlap"|"measurement_eq"|"measurement_offline_eq") {2} else if matches!(contract,"GP21-fx"|"GP20-measurement"|"GP14-structure"|"GP15-brain"|"GP18-sends"|"GP18-master-eq") {1} else if contract == "GP07-processing" {processing_version(self.version)} else {self.version},"show_id":c.show_id,"module":c.module,"epoch":c.epoch,"writer":c.writer,"lease":c.lease,"request_id":c.request_id,"expected_revision":c.expected_revision,"kind":if contract=="GP15-brain" {crate::brain::wire_kind(&self.kind)} else {&self.kind},"body":self.body});
+        let v = json!({"contract":contract,"version":if matches!(self.kind.as_str(),"measurement_overlap"|"measurement_eq"|"measurement_offline_eq") {2} else if matches!(contract,"GP-FX-aux"|"GP21-fx"|"GP20-measurement"|"GP14-structure"|"GP15-brain"|"GP18-sends"|"GP18-master-eq") {1} else if contract == "GP07-processing" {processing_version(self.version)} else {self.version},"show_id":c.show_id,"module":c.module,"epoch":c.epoch,"writer":c.writer,"lease":c.lease,"request_id":c.request_id,"expected_revision":c.expected_revision,"kind":if contract=="GP15-brain" {crate::brain::wire_kind(&self.kind)} else {&self.kind},"body":self.body});
         let b = serde_json::to_vec(&v).map_err(|e| e.to_string())?;
         if b.len() > provider::MAX_BYTES {
             return fail("request capacity");
@@ -749,6 +759,7 @@ struct Lease {
 pub struct Session {
     pub measurement: crate::pa_measurement::wire::State,
     pub fx: crate::fx::State,
+    pub fx_aux: crate::fx_aux::State,
     version: u8,
     show: String,
     epoch: u64,
@@ -815,6 +826,7 @@ impl Session {
         Ok(Self {
             measurement: Default::default(),
             fx: Default::default(),
+            fx_aux: Default::default(),
             version,
             show: show.into(),
             epoch,
@@ -931,6 +943,7 @@ impl Session {
     pub fn context_changed(&mut self) {
         self.measurement.receipt = None;
         self.fx.receipt = None;
+        self.fx_aux.receipt = None;
         if self.maintenance.take().is_some() {
             self.lease = None;
         }
@@ -2107,6 +2120,12 @@ impl Session {
                 crate::recorder::validate_body(body)
             }
             "fx_configure" => self.validate_fx_command(body, now),
+            "fx_aux_configure" => {
+                if self.scope != "fx_configuration" {
+                    return fail("FX aux requires FX configuration scope");
+                }
+                self.fx_aux.validate(body, now)
+            }
             kind if crate::pa_measurement::wire::mutation(kind) => {
                 if self.version != 2
                     || self.scope != "pa_configuration"
@@ -2329,6 +2348,7 @@ impl Session {
                 "record_start"
                     | "record_stop"
                     | "fx_configure"
+                    | "fx_aux_configure"
                     | "brain_hold"
                     | "brain_heartbeat"
                     | "brain_close"
@@ -2375,6 +2395,7 @@ impl Session {
                 "record_start"
                     | "record_stop"
                     | "fx_configure"
+                    | "fx_aux_configure"
                     | "brain_hold"
                     | "brain_heartbeat"
                     | "brain_close"

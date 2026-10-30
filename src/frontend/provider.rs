@@ -248,6 +248,8 @@ fn worker(
     let mut record_enabled = false;
     let mut record_poll = Instant::now();
     let mut fx_enabled = false;
+    let mut fx_aux_enabled = false;
+    let mut fx_aux_poll = Instant::now();
     let mut fx_poll = Instant::now();
     let mut live_enabled = false;
     let mut live_poll = Instant::now();
@@ -375,6 +377,13 @@ fn worker(
                 .as_ref()
                 .is_some_and(|o| o.held_transport_authenticated()),
             brain_status: brain_status.clone(),
+            fx_aux: op
+                .as_ref()
+                .map(|o| o.session.fx_aux.clone())
+                .unwrap_or_default(),
+            fx_aux_age_ms: op
+                .as_ref()
+                .and_then(|o| o.session.fx_aux.receipt.map(|t| o.now().saturating_sub(t))),
             fx: op
                 .as_ref()
                 .map(|o| o.session.fx.clone())
@@ -456,6 +465,7 @@ fn worker(
                     Operation::InputReleased
                         | Operation::Record(crate::recorder::Operation::Probe)
                         | Operation::Fx(crate::fx::Operation::Probe)
+                        | Operation::FxAux(crate::fx_aux::Operation::Probe)
                         | Operation::Measurement(
                             crate::pa_measurement::editor::Operation::Probe
                                 | crate::pa_measurement::editor::Operation::Result(_)
@@ -543,6 +553,7 @@ fn worker(
                 }
                 record_enabled = false;
                 fx_enabled = false;
+                fx_aux_enabled = false;
                 op = None;
                 review = None;
                 reconnects += 1;
@@ -577,6 +588,8 @@ fn worker(
                         brain_status: brain_status.clone(),
                         fx_age_ms: o.session.fx.receipt.map(|t| o.now().saturating_sub(t)),
                         fx: o.session.fx.clone(),
+                        fx_aux: o.session.fx_aux.clone(),
+                        fx_aux_age_ms: o.session.fx_aux.receipt.map(|t| o.now().saturating_sub(t)),
                         measurement: o.session.measurement.clone(),
                         live_eq: o.session.live_eq.clone(),
                         live_eq_age_ms: o.session.live_eq_age(o.now()),
@@ -600,6 +613,7 @@ fn worker(
                                 Operation::EnableLiveEq => "live EQ probe",
                                 Operation::ReviewLiveEq(_) => "live EQ review",
                                 Operation::Record(_) => "REC actual owner",
+                                Operation::FxAux(_) => "FX aux owner",
                                 Operation::Fx(_) => "FX actual owner",
                                 Operation::Measurement(_) => "PA measurement",
                                 Operation::EnableSends => "sends capability query",
@@ -651,6 +665,7 @@ fn worker(
                 let local_result = match &r.operation {
                     Operation::Record(crate::recorder::Operation::Review { .. })
                     | Operation::Fx(crate::fx::Operation::Review { .. })
+                    | Operation::FxAux(crate::fx_aux::Operation::Review(_))
                     | Operation::ReviewDevice(..)
                     | Operation::ReviewBrain { .. }
                     | Operation::ReviewStructure { .. }
@@ -707,6 +722,19 @@ fn worker(
                                 }
                             }
                         }
+                        Operation::FxAux(command) => match command {
+                            crate::fx_aux::Operation::Probe => {
+                                fx_aux_enabled = true;
+                                fx_aux_poll = Instant::now();
+                                o.refresh_fx_aux(true)
+                            }
+                            crate::fx_aux::Operation::Review(body) => {
+                                o.stage_fx_aux(body)?;
+                                serial = serial.checked_add(1).ok_or("review exhausted")?;
+                                review = Some((serial, o.reviewed().unwrap_or_default()));
+                                Ok(())
+                            }
+                        },
                         Operation::Fx(command) => match command {
                             crate::fx::Operation::Probe => {
                                 fx_enabled = true;
@@ -954,6 +982,8 @@ fn worker(
                     brain_status: brain_status.clone(),
                     fx_age_ms: o.session.fx.receipt.map(|t| o.now().saturating_sub(t)),
                     fx: o.session.fx.clone(),
+                    fx_aux: o.session.fx_aux.clone(),
+                    fx_aux_age_ms: o.session.fx_aux.receipt.map(|t| o.now().saturating_sub(t)),
                     measurement: o.session.measurement.clone(),
                     live_eq: o.session.live_eq.clone(),
                     live_eq_age_ms: o.session.live_eq_age(o.now()),
@@ -1019,6 +1049,16 @@ fn worker(
                     }
                     record_poll = Instant::now();
                 }
+                if fx_aux_enabled
+                    && fx_aux_poll.elapsed() >= Duration::from_millis(80)
+                    && o.session.pending.is_none()
+                {
+                    if let Err(e) = o.refresh_fx_aux(false) {
+                        o.session.fx_aux.receipt = None;
+                        status = format!("FX aux readback unavailable: {e}");
+                    }
+                    fx_aux_poll = Instant::now();
+                }
                 if fx_enabled
                     && fx_poll.elapsed() >= Duration::from_millis(80)
                     && o.session.pending.is_none()
@@ -1075,6 +1115,7 @@ fn worker(
                     o.session.disconnect();
                     record_enabled = false;
                     fx_enabled = false;
+                    fx_aux_enabled = false;
                     op = None;
                 } else if review.is_some() && !o.review_valid() {
                     review = None;

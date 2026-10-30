@@ -66,3 +66,5 @@ pub mod fullscreen_eq;
 pub mod controller_surface;
 
 pub mod recorder;
+
+pub mod fx_aux;

@@ -352,6 +352,40 @@ impl Frontend {
             "Processed / post fader",
             Action::SendTap(crate::sends::Tap::ProcessedPostFader),
         );
+        for (label, a) in [
+            ("FX auxes", crate::fx_aux::Action::Open),
+            ("Probe FX auxes", crate::fx_aux::Action::Probe),
+            ("Control FX auxes", crate::fx_aux::Action::Scope),
+            ("Previous FX aux", crate::fx_aux::Action::Bus(-1)),
+            ("Next FX aux", crate::fx_aux::Action::Bus(1)),
+            ("Previous FX effect", crate::fx_aux::Action::Algorithm(-1)),
+            ("Next FX effect", crate::fx_aux::Action::Algorithm(1)),
+            ("Previous FX field", crate::fx_aux::Action::Field(-1)),
+            ("Next FX field", crate::fx_aux::Action::Field(1)),
+            ("Decrease FX field", crate::fx_aux::Action::Adjust(-1)),
+            ("Increase FX field", crate::fx_aux::Action::Adjust(1)),
+            ("FX aux bypass", crate::fx_aux::Action::Bypass),
+            ("Clear FX aux tail", crate::fx_aux::Action::Panic),
+        ] {
+            add(label, Action::FxAux(a));
+        }
+        if let Some(text) = self
+            .state
+            .as_ref()
+            .and_then(|u| u.fx_aux.snapshot.as_ref())
+            .and_then(|s| s["palette_json"].as_str())
+            && let Ok(palette) = serde_json::from_str::<serde_json::Value>(text)
+            && let Some(effects) = palette.as_array()
+        {
+            for effect in effects {
+                if let Some(id) = effect["algorithm"].as_u64().filter(|id| *id < 32) {
+                    add(
+                        crate::fx_aux::name(id),
+                        Action::FxAux(crate::fx_aux::Action::ChooseAlgorithm(id as u32)),
+                    );
+                }
+            }
+        }
         add("Master EQ", Action::MasterEqEdit);
         add("Live EQ", Action::LiveEqEdit);
         add("EQ channel", Action::MasterEqChannel);
@@ -365,7 +399,7 @@ impl Frontend {
         add("Mute outputs", Action::OutputMute);
         add("Rearm outputs", Action::OutputRearm);
         for (label, a) in [
-            ("Effects", F::Open),
+            ("Legacy stereo delay", F::Open),
             ("Control effects", F::Scope),
             ("Left effect", F::Select(0)),
             ("Right effect", F::Select(1)),

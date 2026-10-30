@@ -560,6 +560,8 @@ fn surface() -> Frontend {
         writer_lease_remaining_ms: None,
         snapshot: Some(raw),
         fx: Default::default(),
+        fx_aux: Default::default(),
+        fx_aux_age_ms: None,
         fx_age_ms: None,
         measurement: Default::default(),
         live_eq: None,

@@ -2,6 +2,7 @@
 //! No Simulator, device discovery or physical controller I/O.
 mod controller;
 mod fx;
+mod fx_aux;
 mod measurement;
 mod provider;
 mod recorder;
@@ -49,6 +50,7 @@ pub struct Config {
 pub enum Operation {
     Record(crate::recorder::Operation),
     Fx(crate::fx::Operation),
+    FxAux(crate::fx_aux::Operation),
     Measurement(crate::pa_measurement::editor::Operation),
     SwitchScope(String),
     EnableLiveEq,
@@ -98,6 +100,8 @@ pub struct Update {
     pub recorder: crate::recorder::View,
     pub measurement: crate::pa_measurement::wire::State,
     pub fx: crate::fx::State,
+    pub fx_aux: crate::fx_aux::State,
+    pub fx_aux_age_ms: Option<u64>,
     pub fx_age_ms: Option<u64>,
     pub generation: u64,
     pub attachment_generation: u64,
@@ -322,6 +326,7 @@ pub struct Frontend {
     pub selected_monitor: usize,
     pub exact_draft: Option<ExactDraft>,
     pub fx_ui: crate::fx::Editor,
+    pub fx_aux_ui: crate::fx_aux::Editor,
     pub measurement_ui: crate::pa_measurement::editor::State,
     pub send_draft: Option<SendDraft>,
     send_entry: Option<String>,
@@ -391,6 +396,7 @@ impl Frontend {
             selected_monitor: 0,
             exact_draft: None,
             fx_ui: Default::default(),
+            fx_aux_ui: Default::default(),
             measurement_ui: Default::default(),
             send_draft: None,
             send_entry: None,
@@ -1136,6 +1142,27 @@ impl Frontend {
                 return Ok(());
             }
         }
+        if self.fx_aux_ui.open && self.state.as_ref().is_none_or(|s| s.review.is_none()) {
+            use crate::fx_aux::Action as A;
+            let a = match key {
+                "w" | "W" => Some(A::Probe),
+                "x" | "X" => Some(A::Scope),
+                "[" => Some(A::Bus(-1)),
+                "]" => Some(A::Bus(1)),
+                "a" | "A" => Some(A::Algorithm(-1)),
+                "d" | "D" => Some(A::Algorithm(1)),
+                "Up" => Some(A::Field(-1)),
+                "Down" => Some(A::Field(1)),
+                "-" => Some(A::Adjust(-1)),
+                "+" | "=" => Some(A::Adjust(1)),
+                " " | "Space" => Some(A::Bypass),
+                "p" | "P" => Some(A::Panic),
+                _ => None,
+            };
+            if let Some(a) = a {
+                return self.action(Action::FxAux(a));
+            }
+        }
         if self.fx_ui.open && matches!(key, "Esc" | "Escape") {
             return self.action(Action::Cancel);
         }
@@ -1168,6 +1195,7 @@ impl Frontend {
             && self.exact_draft.is_none()
             && !self.record_page
             && !self.fx_ui.open
+            && !self.fx_aux_ui.open
             && !self.measurement_ui.open
             && !self.live_page
             && !self.brain_page
@@ -1633,6 +1661,7 @@ impl Frontend {
             self.record_page = false;
             self.measurement_ui.open = false;
             self.fx_ui.open = false;
+            self.fx_aux_ui.open = false;
         }
         if self.exact_draft.is_some()
             && !matches!(
@@ -1656,11 +1685,14 @@ impl Frontend {
         match action {
             Action::Console(_) => unreachable!(),
             Action::Record(a) => self.record_action(a),
+            Action::FxAux(a) => self.fx_aux_action(a),
             Action::Fx(a) => {
+                self.fx_aux_ui.open = false;
                 self.record_page = false;
                 self.fx_action(a)
             }
             Action::Measurement(action) => {
+                self.fx_aux_ui.open = false;
                 self.record_page = false;
                 self.measurement_action(action)
             }
@@ -2523,6 +2555,9 @@ impl Frontend {
                 Ok(())
             }
             Action::Cancel | Action::Back => {
+                if self.state.as_ref().is_none_or(|s| s.review.is_none()) {
+                    self.fx_aux_ui.open = false;
+                }
                 self.fx_ui.text = None;
                 self.fx_ui.basis = None;
                 if self.measurement_ui.editor.take().is_some() {
@@ -2975,6 +3010,7 @@ impl Frontend {
             && self.topology_page.is_none()
             && !self.record_page
             && !self.fx_ui.open
+            && !self.fx_aux_ui.open
             && !self.measurement_ui.open
             && !self.mode_picker
             && self.exact_draft.is_none()
@@ -3065,6 +3101,9 @@ impl Frontend {
         }
         if self.record_page {
             return self.record_scene();
+        }
+        if self.fx_aux_ui.open {
+            return self.fx_aux_scene();
         }
         if self.fx_ui.open {
             return self.fx_scene();

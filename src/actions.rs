@@ -8,6 +8,7 @@ pub enum Action {
     Record(crate::recorder::Action),
     Console(crate::controller_surface::Command),
     Fx(crate::fx::Action),
+    FxAux(crate::fx_aux::Action),
     Measurement(crate::pa_measurement::editor::Action),
     ExactEdit(crate::exact_value::Parameter),
     ExactText(String),
@@ -236,6 +237,7 @@ pub fn apply(d: &mut Desk, action: Action) -> Result<Option<Command>, String> {
         | Action::TalkbackRelease
         | Action::Topology
         | Action::Fx(_)
+        | Action::FxAux(_)
         | Action::Measurement(_)
         | Action::StructureEdit
         | Action::LiveEqEdit
