@@ -1,5 +1,36 @@
 # Dated implementation evidence
 
+## 2026-10-30 — gates, controller semantics and keybed
+
+Desk consumes processing v5 with separate gate attenuation/state and compressor
+GR, labelled Gate/Compressor rotary modes, detector controls and reviewed
+Manual/Tom/Automatic Import choices. Automatic Import accepts identified GigPies
+summary or cued-PCM proposals; uncertain evidence stays bypassed and prepared
+settings are frozen. The producer now offers bounded raw-cue capture summaries,
+calibration-only detector selection, independent causal evaluation and duplicate
+PCM rejection. Cues establish source identity; arbitrary mixtures remain ambiguous.
+Actual synthetic producer-to-Frontend v5 Manual/import mutation and reconnect
+acceptance passed; the owning GP-GATE card records the command and limits.
+
+The shared 0.3.2 widget provides exactly three rows, 24 input slots and a separate
+Master key. Selection preserves draft/review guards. Recording membership and
+settled mute coefficients come from fresh provider readback even outside Recorder;
+solo is unavailable because no supporting provider contract exists.
+
+Explicit controller profiles normalize held Shift and alternate rotary CCs,
+apply upward gain slowdown, and support a coalesced, rate-limited pad-output
+transport on an independent output worker, installed through the Frontend's
+explicit injected endpoint boundary. Blocked output cannot block input publishing
+or detachment. No hardware controller messages were sent. Master is explicitly selected but
+its gain/pan provider contract and pitch-speed integration remain unimplemented;
+the speed model alone is tested. Physical MIDI acquisition/bindings, return to
+center, feel and LED interaction still need qualification.
+
+[Controller guide](CONTROLLER.md) documents mappings and evidence.
+[Owning implementation routes](GIGPIES_IMPLEMENTATION.md) link the shared GP-GATE
+and GP-PANEL cards with validation and benchmark results. No audio device,
+controller memory, accepted mix, commit or publication changed.
+
 ## 2026-10-30 — four FX auxes through Brain
 
 Desk exposes four ordinary FX aux sends, one provider effect per aux and wet

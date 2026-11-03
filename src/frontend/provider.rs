@@ -245,7 +245,7 @@ fn worker(
     let mut processing_poll = Instant::now();
     let mut sends_enabled = false;
     let mut sends_poll = Instant::now();
-    let mut record_enabled = false;
+    let mut record_enabled = true;
     let mut record_poll = Instant::now();
     let mut fx_enabled = false;
     let mut fx_aux_enabled = false;
@@ -551,7 +551,7 @@ fn worker(
                     }
                     config.scope = scope.clone();
                 }
-                record_enabled = false;
+                record_enabled = true;
                 fx_enabled = false;
                 fx_aux_enabled = false;
                 op = None;

@@ -194,3 +194,19 @@ this observer, separate from editing authority. No DSP runs in Desk.
 The [shared spectrum contract](../../../gigpies/docs/reference/INSTRUMENT_PANEL.md#selected-channel-spectrum-contract)
 and [GP-PANEL owning card](../../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-panel--shared-physical-instrument-panel)
 define compatibility, resource bounds, validation and remaining qualification.
+
+### Channel Gate and keybed
+
+The standard terminal layout now requires **160×49** cells: existing controls,
+three keybed rows and the footer. Smaller terminals show a resize requirement.
+The 24 input slots plus separate Master are selections only; PageUp/PageDown
+pages slots outside review screens, where those keys retain review paging.
+The right-hand identity text disambiguates repeated key digits. `>` supplements
+selected green, and R/S/M retain independent positions with `?` for missing or
+stale status. Solo and Master controls lack provider authority and stay unavailable.
+
+Click the labelled Compressor/Gate mode selector for the six dynamics controls.
+Gate threshold/attack, hold/release and range/hysteresis reuse columns 5–7; bypass
+and detector frequency/Q are in its menu. The original ignored screenshot is the
+layout reference; no bitmap replacement is used. Physical qualification and the
+unfinished Master/automatic-soundcheck workflows are listed in [Controller](../CONTROLLER.md).

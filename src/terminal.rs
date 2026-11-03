@@ -142,6 +142,14 @@ pub fn run(
                     .terminal
                     .draw(|f| {
                         hits.clear();
+                        if f.area().width < 160 || f.area().height < 49 {
+                            f.render_widget(shr_instrument_panel::terminal::ratatui::widgets::Paragraph::new("Resize to at least 160 × 49 for controls and the three-row keybed"), f.area());
+                            visible = false;
+                            return;
+                        }
+                        let full_area = f.buffer_mut().area;
+                        f.buffer_mut().area.height = full_area.height - 4;
+
                         visible = if front.channel_panel_visible() {
                             hits = crate::channel_panel::draw_with_ui(
                                 &front,
@@ -182,6 +190,8 @@ pub fn run(
                         } else {
                             scene::draw(&s, f.buffer_mut(), material)
                         };
+                        f.buffer_mut().area = full_area;
+                        if visible { hits.extend(front.draw_keybed(f.buffer_mut())); }
                         if visible && !front.channel_panel_visible() {
                             use shr_instrument_panel::terminal::ratatui::{
                                 layout::Rect, widgets::Paragraph,
@@ -236,6 +246,16 @@ pub fn run(
                             || (k.code == KeyCode::F(11) && front.channel_panel_visible()))
                             && k.kind != KeyEventKind::Repeat =>
                     {
+                        if k.kind == KeyEventKind::Press
+                            && front.state.as_ref().is_none_or(|s| s.review.is_none())
+                            && matches!(k.code, KeyCode::PageUp | KeyCode::PageDown)
+                        {
+                            let delta = if k.code == KeyCode::PageUp { -1 } else { 1 };
+                            let _ = front.inject_controller(crate::actions::Action::Console(
+                                crate::controller_surface::Command::KeybedBank(delta),
+                            ));
+                            continue;
+                        }
                         if k.code == KeyCode::Enter && !console.release_events {
                             front.message =
                                 "Confirmation unavailable: terminal lacks release events".into();
@@ -307,7 +327,7 @@ pub fn run(
                             generation: front.provider.generation(),
                         });
                     }
-                    Input::Mouse(mouse) if visible && front.channel_panel_visible() => {
+                    Input::Mouse(mouse) if visible => {
                         if let Some(hit) = hits
                             .iter()
                             .find(|h| h.area.contains((mouse.column, mouse.row).into()))
@@ -332,6 +352,14 @@ pub fn run(
                                     MouseEventKind::Down(MouseButton::Left),
                                 ) => {
                                     panel_ui.menu = *menu;
+                                    if *menu == crate::channel_panel::Menu::Gate {
+                                        front.dynamics_mode =
+                                            crate::controller_flow::Dynamics::Gate;
+                                    }
+                                    if *menu == crate::channel_panel::Menu::Compressor {
+                                        front.dynamics_mode =
+                                            crate::controller_flow::Dynamics::Compressor;
+                                    }
                                     panel_ui.secondary = false;
                                 }
                                 (

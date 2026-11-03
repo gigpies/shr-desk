@@ -17,6 +17,8 @@ pub enum Menu {
     Channel,
     Band(usize),
     Compressor,
+    Gate,
+    GateDetector,
     Output,
 }
 #[derive(Clone, Copy, Debug, Default)]
@@ -509,6 +511,27 @@ pub fn draw_observation(
             Target::Field(17),
             selected(17),
         );
+        if matches!(f.dynamics_mode, crate::controller_flow::Dynamics::Gate) {
+            text(
+                b,
+                83,
+                2,
+                54,
+                &if f.processing_fresh() {
+                    c.gate
+                        .map_or("Gate bypass / no active observation".into(), |g| {
+                            format!(
+                                "Gate {:?} / {:.1} dB attenuation",
+                                g.state,
+                                g.attenuation_mdb as f64 / 1000.
+                            )
+                        })
+                } else {
+                    "Gate state unknown / stale".into()
+                },
+                DIM,
+            );
+        }
         let gr = if f.processing_fresh() && c.ready {
             c.gain_reduction_mdb
         } else {
@@ -552,56 +575,127 @@ pub fn draw_observation(
             ),
             DIM,
         );
-        let knobs = [
-            (
-                4,
-                0,
-                "THRESH / dB",
-                format!("{:.1}", cfg.threshold_mdb as f64 / 1000.),
-                18,
-                (cfg.threshold_mdb as f64 + 60000.) / 60000.,
+        let knobs = if matches!(f.dynamics_mode, crate::controller_flow::Dynamics::Gate) {
+            [
+                (
+                    4,
+                    0,
+                    "GATE THRESH",
+                    format!("{:.1}", cfg.gate.threshold_mdb as f64 / 1000.),
+                    25,
+                    cfg.gate.threshold_mdb as f64 / 90000.,
+                ),
+                (
+                    4,
+                    1,
+                    "ATTACK / ms",
+                    format!("{:.1}", cfg.gate.attack_us as f64 / 1000.),
+                    26,
+                    cfg.gate.attack_us as f64 / 200000.,
+                ),
+                (
+                    5,
+                    0,
+                    "HOLD / ms",
+                    format!("{:.1}", cfg.gate.hold_ms as f64 / 1.),
+                    27,
+                    cfg.gate.hold_ms as f64 / 2000.,
+                ),
+                (
+                    5,
+                    1,
+                    "RELEASE / ms",
+                    format!("{:.1}", cfg.gate.release_ms as f64 / 1.),
+                    28,
+                    cfg.gate.release_ms as f64 / 5000.,
+                ),
+                (
+                    6,
+                    0,
+                    "RANGE / dB",
+                    format!("{:.1}", cfg.gate.range_mdb as f64 / 1000.),
+                    29,
+                    cfg.gate.range_mdb as f64 / 90000.,
+                ),
+                (
+                    6,
+                    1,
+                    "HYST / dB",
+                    format!("{:.1}", cfg.gate.hysteresis_mdb as f64 / 1000.),
+                    30,
+                    cfg.gate.hysteresis_mdb as f64 / 24000.,
+                ),
+            ]
+        } else {
+            [
+                (
+                    4,
+                    0,
+                    "THRESH / dB",
+                    format!("{:.1}", cfg.threshold_mdb as f64 / 1000.),
+                    18,
+                    (cfg.threshold_mdb as f64 + 60000.) / 60000.,
+                ),
+                (
+                    5,
+                    0,
+                    "RATIO",
+                    format!("{:.1}:1", cfg.ratio_milli as f64 / 1000.),
+                    19,
+                    (cfg.ratio_milli as f64 - 1000.) / 19000.,
+                ),
+                (
+                    6,
+                    0,
+                    "KNEE / dB",
+                    format!("{:.1}", cfg.knee_mdb as f64 / 1000.),
+                    20,
+                    cfg.knee_mdb as f64 / 18000.,
+                ),
+                (
+                    4,
+                    1,
+                    "ATTACK / ms",
+                    format!("{:.1}", cfg.attack_us as f64 / 1000.),
+                    21,
+                    cfg.attack_us as f64 / 200000.,
+                ),
+                (
+                    5,
+                    1,
+                    "RELEASE / ms",
+                    cfg.release_ms.to_string(),
+                    22,
+                    cfg.release_ms as f64 / 2000.,
+                ),
+                (
+                    6,
+                    1,
+                    "MAKEUP / dB",
+                    format!("{:+.1}", cfg.makeup_mdb as f64 / 1000.),
+                    23,
+                    (cfg.makeup_mdb as f64 + 12000.) / 24000.,
+                ),
+            ]
+        };
+        readout(
+            b,
+            &mut hits,
+            Rect::new(82, 40, 55, 1),
+            if matches!(f.dynamics_mode, crate::controller_flow::Dynamics::Gate) {
+                "GATE MODE · click for Compressor"
+            } else {
+                "COMPRESSOR MODE · click for Gate"
+            },
+            Target::Menu(
+                if matches!(f.dynamics_mode, crate::controller_flow::Dynamics::Gate) {
+                    Menu::Compressor
+                } else {
+                    Menu::Gate
+                },
             ),
-            (
-                5,
-                0,
-                "RATIO",
-                format!("{:.1}:1", cfg.ratio_milli as f64 / 1000.),
-                19,
-                (cfg.ratio_milli as f64 - 1000.) / 19000.,
-            ),
-            (
-                6,
-                0,
-                "KNEE / dB",
-                format!("{:.1}", cfg.knee_mdb as f64 / 1000.),
-                20,
-                cfg.knee_mdb as f64 / 18000.,
-            ),
-            (
-                4,
-                1,
-                "ATTACK / ms",
-                format!("{:.1}", cfg.attack_us as f64 / 1000.),
-                21,
-                cfg.attack_us as f64 / 200000.,
-            ),
-            (
-                5,
-                1,
-                "RELEASE / ms",
-                cfg.release_ms.to_string(),
-                22,
-                cfg.release_ms as f64 / 2000.,
-            ),
-            (
-                6,
-                1,
-                "MAKEUP / dB",
-                format!("{:+.1}", cfg.makeup_mdb as f64 / 1000.),
-                23,
-                (cfg.makeup_mdb as f64 + 12000.) / 24000.,
-            ),
-        ];
+            false,
+        );
         for (col, row, label, value, index, n) in knobs {
             pot(
                 b,
@@ -616,10 +710,10 @@ pub fn draw_observation(
         text(
             b,
             83,
-            40,
+            41,
             53,
             &format!(
-                "FADER OWNER  {}",
+                "OWNER {}",
                 fader.and_then(|p| p.owner.as_deref()).unwrap_or("unowned")
             ),
             DIM,
@@ -869,6 +963,58 @@ pub fn draw_observation(
                     ("BACK", Target::Menu(Menu::Channel), "blue", false),
                 ]
             }
+            Menu::Gate => vec![
+                ("BYPASS", Target::Field(24), "blue", false),
+                (
+                    "MANUAL",
+                    Target::Action(crate::actions::Action::Console(
+                        crate::controller_surface::Command::GateMode(crate::gate::Mode::Manual),
+                    )),
+                    "blue",
+                    false,
+                ),
+                (
+                    "TOM",
+                    Target::Action(crate::actions::Action::Console(
+                        crate::controller_surface::Command::GateMode(crate::gate::Mode::Tom),
+                    )),
+                    "blue",
+                    false,
+                ),
+                (
+                    "AUTOMATIC IMPORT",
+                    Target::Action(crate::actions::Action::Console(
+                        crate::controller_surface::Command::GateMode(crate::gate::Mode::Automatic),
+                    )),
+                    "blue",
+                    false,
+                ),
+                (
+                    "DETECTOR / HYST",
+                    Target::Menu(Menu::GateDetector),
+                    "blue",
+                    false,
+                ),
+                (
+                    "REVIEW",
+                    Target::Action(crate::actions::Action::ProcessingApply),
+                    "yellow",
+                    f.processing_draft.is_some(),
+                ),
+                (
+                    "CANCEL",
+                    Target::Action(crate::actions::Action::Cancel),
+                    "yellow",
+                    false,
+                ),
+                ("BACK", Target::Menu(Menu::Channel), "blue", false),
+            ],
+            Menu::GateDetector => vec![
+                ("HYSTERESIS", Target::Field(30), "blue", false),
+                ("DETECTOR HZ", Target::Field(31), "blue", false),
+                ("DETECTOR Q", Target::Field(32), "blue", false),
+                ("BACK", Target::Menu(Menu::Gate), "blue", false),
+            ],
             Menu::Compressor => [
                 "THRESHOLD",
                 "RATIO",

@@ -1128,3 +1128,120 @@ fn gp14_structural_external_driver() {
         .unwrap();
     }
 }
+
+#[test]
+#[ignore = "actual synthetic producer; set GP_GATE_SOURCE to canonical GigPies spectrum-source executable"]
+fn gate_v5_actual_producer_review_import_and_reconnect() {
+    struct Host {
+        child: Child,
+        directory: PathBuf,
+    }
+    impl Drop for Host {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+            let _ = fs::remove_dir_all(&self.directory);
+        }
+    }
+    let executable = std::env::var_os("GP_GATE_SOURCE").expect("explicit synthetic provider");
+    let directory = std::env::temp_dir().join(format!("desk-gate-{}", std::process::id()));
+    fs::create_dir(&directory).unwrap();
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+    let mut host = Host {
+        child: Command::new(executable)
+            .arg(&directory)
+            .args([SHOW, "1", "gate"])
+            .stdin(Stdio::null())
+            .spawn()
+            .unwrap(),
+        directory,
+    };
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !host.directory.join("audio.sock").exists() {
+        assert!(host.child.try_wait().unwrap().is_none(), "provider exited");
+        assert!(Instant::now() < deadline);
+        thread::sleep(Duration::from_millis(5));
+    }
+    let mut f = Frontend::new(Config {
+        wire_version: 2,
+        remote: None,
+        endpoint: host.directory.join("audio.sock"),
+        show: SHOW.into(),
+        epoch: 1,
+        writer: "gate-acceptance".into(),
+        scope: "foh".into(),
+    });
+    f.enable_processing().unwrap();
+    wait(&mut f, deadline, "v5 ready", Frontend::processing_ready);
+    assert_eq!(snapshot(&f).channels.len(), 16);
+    tap(&mut f, "G");
+    wait(&mut f, deadline, "FOH permission", |f| {
+        f.state.as_ref().is_some_and(|s| s.writer_granted())
+    });
+    tap(&mut f, "F2");
+    wait(&mut f, deadline, "Channel", Frontend::processing_ready);
+    controller(&mut f, Action::ProcessingEdit);
+    controller(
+        &mut f,
+        Action::Console(shr_desk::controller_surface::Command::GateMode(
+            shr_desk::gate::Mode::Manual,
+        )),
+    );
+    let old = snapshot(&f).revision.clone();
+    review_confirm(&mut f, deadline, true, false);
+    wait(&mut f, deadline, "manual gate confirmed", |f| {
+        f.processing_ready()
+            && snapshot(f).revision != old
+            && !snapshot(f).channels[0].target.gate.bypass
+    });
+    assert!(f.state.as_ref().unwrap().processing_final.is_some());
+    let untouched = snapshot(&f).channels[1..].to_vec();
+    controller(&mut f, Action::ProcessingEdit);
+    let proposal = json!({"version":1,"input":"input-01","calibration_id":"independent-train","evaluation_id":"independent-eval",
+        "proposal":{"config":{"bypass":false,"threshold_mdb":-26000,"attack_us":100,"hold_ms":300,"release_ms":150,"range_mdb":24000,"hysteresis_mdb":6000,"detector_hz":0,"detector_q_milli":700},"confidence":0.8,"reason":"prepared",
+        "measurements":{"quiet_hit_db":-20.0,"bleed_p95_db":-40.0,"decay_p90_ms":300.0,"evaluation_hits":8,"evaluation_missed_hits":0,"evaluation_bleed_windows":8,"evaluation_false_openings":0}}});
+    f.import_gate_proposal(&serde_json::to_vec(&proposal).unwrap())
+        .unwrap();
+    let desired = f.processing_draft.as_ref().unwrap().config.clone();
+    controller(
+        &mut f,
+        Action::Console(shr_desk::controller_surface::Command::SelectTarget(
+            shr_desk::controller_flow::Target::Master,
+        )),
+    );
+    assert!(!f.selected_master);
+    assert!(f.processing_draft.is_some());
+    let before = snapshot(&f).revision.clone();
+    review_confirm(&mut f, deadline, true, false);
+    wait(&mut f, deadline, "prepared gate confirmed", |f| {
+        f.processing_ready()
+            && snapshot(f).revision != before
+            && snapshot(f).channels[0].target == desired
+    });
+    for (a, b) in snapshot(&f).channels[1..].iter().zip(&untouched) {
+        assert_eq!(a.target, b.target);
+    }
+    let confirmed = snapshot(&f).revision.clone();
+    tap(&mut f, "F5");
+    wait(
+        &mut f,
+        deadline,
+        "reconnect read-only",
+        Frontend::processing_ready,
+    );
+    assert_eq!(snapshot(&f).revision, confirmed);
+    assert_eq!(snapshot(&f).channels[0].target, desired);
+    assert!(!f.state.as_ref().unwrap().writer_granted());
+    host.child.kill().unwrap();
+    host.child.wait().unwrap();
+    thread::sleep(Duration::from_millis(300));
+    f.pump();
+    assert!(!f.processing_ready());
+    assert!(
+        f.import_gate_proposal(&serde_json::to_vec(&proposal).unwrap())
+            .is_err()
+    );
+    println!(
+        "actual v5: manual + prepared gate mutations confirmed, other 15 inputs unchanged, draft selection fenced, reconnect read-only/no replay, stale import refused"
+    );
+}

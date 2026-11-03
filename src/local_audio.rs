@@ -384,6 +384,7 @@ impl Operator {
         };
         if contract == Some("GP07-processing")
             && document.value()["version"] != 4
+            && document.value()["version"] != 5
             && document.admitted_bytes() > crate::provider::MAX_BYTES
         {
             return Err("legacy processing capacity".into());
@@ -567,7 +568,11 @@ impl Operator {
             return Ok(false);
         }
         let r = crate::processing::decode_reply(bytes)?;
-        if r.version != audio::processing_version(self.session.snapshot_request().version) {
+        if r.version != audio::processing_version(self.session.snapshot_request().version)
+            && !(self.session.snapshot_request().version == 2
+                && r.version == 4
+                && r.context.writer.is_none())
+        {
             return Err("processing version differs from selected session".into());
         }
         if r.context == self.session.processing_request().context {

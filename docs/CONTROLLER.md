@@ -1,4 +1,4 @@
-# MiniLab controller and keyboard plan
+# MiniLab mkII controller flows
 
 ## Production semantic menu
 
@@ -33,6 +33,84 @@ transposition. SHR FX's interface records physical clicks on rotaries 1 and 9.
 The encoders are endless controls, not motorized faders. Learn their actual
 absolute/relative encoding; never infer it from appearance or CC number.
 
+## Profile/input/output implementation
+
+`src/controller_flow.rs` and `Frontend::inject_controller_flow` accept complete
+messages from an explicitly named endpoint with acquisition generation. No MIDI
+port is opened. Profiles declare sixteen relative encodings/CCs, optional alternate
+CCs only for rotaries 1/9, two distinct pad-note banks, key channel/anchor, and
+optional exact captured Shift-down/up messages. A profile must be installed with
+`Input::reset(current_generation)`. Unknown hardware bindings remain unqualified.
+General held Shift applies to all rotaries only when those messages are supplied;
+an alternate rotary CC implies Shift for that turn only and dispatches once.
+No mkII Shift SysEx or MiniLab 3 mapping is invented. Shift+pad/key stays reserved
+for hardware memory/channel behavior. Context/input loss clears modifiers and
+requires pad release; delayed generations cannot act on a new selection.
+
+The normal menu's first bank uses its eight labelled semantic gestures; the second
+bank uses Mix, Channel, Sends, Controls, Grant, Release Hold, Cancel, Reconnect.
+Pad actions complete on release, preserving the action captured at press. The
+selected Channel's on-screen pad preview is still separate from that menu binding.
+
+`Feedback` is a bounded non-audio poll worker over an injected `Output` transport:
+explicit endpoint and `arturia-minilab-mkii-pad-v1`, one latest 16-colour state,
+changed-pad coalescing, at most one 16-message batch per 50 ms. Frontend feedback
+uses current menu labels and confirmed grant state, never input echoes. Errors
+leave input independent and retry changed output on a later batch. Reconnect
+invalidates the sent cache. No preset/backlight writes or real messages are sent.
+Physical press-white, bank/Shift/memory indication and exit restoration remain
+unqualified; the transient last colours may remain until hardware replaces them.
+
+### EQ Shift, gain guards and Master speed
+
+Columns 1–4 are frequency above gain; held Shift changes upper to Q and lower to
+fine gain. Fine gain is 0.1 dB per decoded step, without acceleration. Column 8 is
+pan above level for the explicitly selected target. Channel upward gain sensitivity
+uses a smoothstep factor from 1 below −12 dB to 0.2 at +6 dB, separately clamped
+at +12 dB. Normal steps are 0.5 dB; downward steps keep full sensitivity. Each of
+at most eight decoded steps evaluates the guard again. These are configurable
+software policy values; fader level is not measured audio headroom.
+
+The separate Master policy starts its guard at −18 dB, reaches minimum sensitivity
+at 0 dB and caps at +6 dB. The pure `MasterSpeed` model requires the profile's
+explicit return-to-center capability: 8% dead zone, quadratic displacement,
+maximum ±0.5 dB/s before the upward guard, 250 ms stale-input/application timeout,
+elapsed-time integration through center transitions, and immediate stop on permission/generation
+loss. Center stops and preserves gain. No finger-release event is assumed.
+**Master speed-to-provider integration is pending** because no dedicated Master
+gain contract exists. The production adapter refuses this intent; model tests
+are not a claim of a working live Master strip. Physical feel remains pending.
+The modulation strip/CC1 is unassigned. SHR DAW's separate pitch/CC1 synth
+forwarding is unchanged.
+
+### Gate and Compressor modes
+
+Click the labelled Compressor/Gate mode selector in Channel, or choose
+Compressor rotaries / Gate rotaries in the controller menu. Gate uses column
+5 threshold/attack, 6 hold/release, 7 range/hysteresis. Its menu includes bypass
+and detector Hz/Q; zero Hz disables detector filtering. Compressor retains
+5 threshold/attack, 6 ratio/release, 7 knee/makeup. All edits use existing draft,
+review, permission and generation checks. Gate attenuation/state is separate
+from compressor GR. Dynamic sessions require processing v5 for gate writes.
+The Gate menu offers **Manual**, **Tom** and **Automatic Import**. Manual enables
+the gate with detector filtering disabled. Tom requires a measured nonzero
+frequency set in Detector first; it makes no instrument-specific frequency guess.
+Automatic Import opens an absolute-path entry for a GigPies `gate-prepare` JSON
+proposal (16 KiB maximum). It checks the stable input ID, distinct calibration and
+evaluation IDs, config bounds and confidence/reason coherence. The imported
+settings remain a local draft; confidence/reason appears in the status message,
+and Review/Apply still requires a separate confirmation. Rejected evidence imports
+bypass. Settings are frozen after preparation. GigPies also supplies cued-PCM
+preparation with calibration-only detector selection and independent causal
+evaluation; Desk imports its identified result rather than classifying audio.
+
+Reuse evidence: SHR DAW `src/midi.rs` tests preserve pitch bend/CC1 musical
+forwarding and exercise configured held modifiers/alternate encoder CCs;
+`docs/CONTROLLER_INTERFACE.md` explicitly distinguishes those input mechanisms.
+Its `docs/CONTROLLER_LED_FEEDBACK.md` documents the palette/packet and unresolved
+hardware-owned indications. These sources establish reusable software/protocol
+evidence, not captured messages for the Desk's actual device/preset.
+
 ## Selected Channel: eight physical columns
 
 The operator's October 12 direction defines the selected Channel layout. The screen follows the MiniLab mkII's two rows of eight encoders and one
@@ -66,9 +144,10 @@ Green indicates fresh owner-enabled processing, red fresh owner mute, amber Hold
 or an edit requiring review, and blue local selection/navigation. These meanings
 are labelled on screen; green is not evidence that a physical output is playing.
 
-Still missing: learned encoder encoding and pad-bank messages for the actual
-preset, context-bound dispatch through the production controller path, LED colour
-feedback, pickup/fine behavior and physical end-to-end qualification. No port is
+Still missing: captured encoder/modifier/pad messages for the actual preset,
+physical transport installation, absolute pickup in the new relative profile,
+and physical end-to-end qualification. Semantic relative dispatch and testable
+LED output are implemented above. No port is
 opened and no controller memory is programmed by the terminal preview. Exact
 entry, grants, full review, freshness and confirmation fences remain unchanged.
 
@@ -86,36 +165,31 @@ until then the on-screen layer selector is a software menu control only. Learned
 CC/note assignments, encoder modes and LED feedback remain outside the operating
 screen and unqualified.
 
-## Channel selection by pitch
+## Channel selection and the three-row keybed
 
-All piano keys, including black keys and the upper end key, select channels.
-No piano note generates sound, toggles mute or executes a scene. With a learned
-anchor note C assigned to channel 1:
+The production `controller_flow` profile maps 24 consecutive notes from its
+explicit anchor to the current 24-slot display bank; note 25 selects **Master**.
+It never selects input 25 implicitly. PageUp/PageDown pages input banks; Master
+stays anchored. Octave-transposed messages outside the learned 25-note range are
+ignored. Changing hardware MIDI channel through Shift+key is hardware-owned;
+Desk does not reinterpret it as a selection or add a second transposition.
 
-```text
-channel = received_note - anchor_note + 1
-bank    = floor((channel - 1) / 12)
-slot    = (channel - 1) mod 12
+Slots resolve through provider stable input IDs. Unavailable slots refuse
+selection; sparse/reordered IDs must use the current displayed mapping. Selected
+keys are green with a `>` fallback. Independent R/S/M positions show simultaneous
+state; unknown/stale is `?`, preparing/finalizing is `P`/`F`, recording fault is
+`!`. Recording means membership in the provider's active take mapping, not arm
+or individual-track durability. Solo has no supported provider contract and
+remains `?`. Master is explicit and currently read-only: the provider lacks a
+dedicated Master gain/pan/mute target or Master recording contract. Its status
+indicators remain unavailable (`?`). There is no silent input substitution.
 
-C  C# D  D# E  F  F# G  G# A  A# B
-01 02 03 04 05 06 07 08 09 10 11 12
-13 14 15 16 17 18 19 20 21 22 23 24   next octave
-25 26 27 28 29 30 31 32 33 34 35 36   next octave
-```
-
-The MiniLab octave buttons transpose transmitted notes; do not also add a
-software bank offset or selection would move twice. The 25th key selects the
-first channel of the next octave, not a special command. Out-of-range notes are
-ignored. Sparse stable engine IDs resolve through an ordered channel map; the
-initial fixture uses sequential IDs only. Reordered user banks must keep the
-pitch-to-slot map visible and never silently change the engine ID being edited.
-
-Qualify by MIDI channel and learned message type. Pads and keys may use identical
-note numbers on different MIDI channels; ambiguous same-channel assignments are
-rejected. Note-off and velocity-zero note-on do not select or execute actions.
-Aftertouch does not retrigger a pad. Pad commands use a press edge, not every
-nonzero event. Context changes cancel pending confirmation, and reconnect clears
-held/modifier states. Do not forward these notes to instruments.
+The terminal reserves exactly three keybed rows above the existing footer,
+requires 160×49 cells, and preserves the original character-grid silhouette.
+Full selected ID and bank range are alongside it. Selection is guarded during
+drafts/reviews and never toggles R/S/M. Detail/meter pages keep their 12-input
+banks; 24 is only an overview bank. The old simulator decoder remains a separate
+fixture path, not the production mapping or a hardware-qualified profile.
 
 ## Sixteen physical rotations
 
@@ -184,12 +258,13 @@ This is a discrete palette, not arbitrary RGB. Source: the device-specific
 [firsthand protocol notes](https://github.com/mhugo/sysex#arturia-minilab-mk-ii),
 cross-checked against `../shr-lux/docs/notes/0018-analysis-and-pad-preview.md` and
 `../shr-daw/docs/CONTROLLER_LED_FEEDBACK.md`. The Arturia manual does not specify
-this packet. The implementation only constructs bytes and has no output driver.
+this packet. The implementation constructs these bytes and sends them only through the explicit
+injected transport; no operating-system MIDI output driver is installed.
 
 Desk must be the sole owner of the physical controller while mixing. SHR LUX
 must not run a pad light show simultaneously; show state can inform Desk's
-feedback through an adapter. The eventual LED worker uses a latest-state mailbox,
-changed-pad coalescing and a bounded rate (initial target ≤20 refresh batches/s).
+feedback through an adapter. The implemented `FeedbackWorker` owns the injected `Output` transport on a separate thread, with a latest-state mailbox,
+changed-pad coalescing and at most 20 refresh batches/s.
 LED failure does not block input. Feedback follows confirmed state, never raw
 input echoes. No hardware memory, mapping, firmware or backlight writes are
 required. Transient pad colour restoration needs a documented device policy.
@@ -201,8 +276,9 @@ value change, ignore motion until it approaches or crosses the applied value.
 Show an arrow and target. Relative modes are explicit per profile; the library
 supports two's complement, binary offset and signed-bit decoding with bounded
 eight-step deltas. The simulator uses absolute values only and rearms
-conservatively after each accepted value change. Production relative scaling,
-acceleration, fine mode and fader taper need a separate gesture model and tests.
+conservatively after each accepted value change. The production relative profile uses the tested `controller_flow` gesture model
+above, with no acceleration and 0.1 dB fine gain. Absolute pickup integration and
+physical fader feel remain pending.
 The current linear dB mapping is a simulation convention, not an accepted taper.
 
 Planned keyboard map: F1 Mix, F2 Channel, F3 Sends, F4 Routing, F5 Automation,
@@ -212,3 +288,18 @@ R opens Release, A opens mode picker. Text entry owns keys while focused;
 the letter shortcuts must not fire when naming a channel. PFL uses an explicit
 momentary action with release-on-focus-loss. The existing line simulator is not
 yet this keyboard workflow or the proposed recovery TUI.
+
+The Frontend's explicit `attach_controller_feedback` boundary installs that
+worker; its ordinary pump publishes the current action projection and repaints
+after generation changes. Detachment/drop never waits for endpoint I/O. Transport
+implementations must bound send time for prompt thread shutdown. A blocked-output
+regression proves that pending colours coalesce and publishing/drop remain usable.
+`controller_feedback_failed` exposes output failure independently of input.
+There is still no OS MIDI endpoint acquisition or qualified hardware binding.
+
+The pure pitch-speed model now integrates the prior velocity up to each event,
+so returning to centre preserves motion accrued between pump calls. It uses
+actual elapsed time without the former 100 ms truncation; stale input, stale
+application (>250 ms), generation change and lost permission discard pending
+motion. The 8% dead zone and ±0.5 dB/s maximum are unchanged. **This model remains
+unconnected to a provider Master target.**

@@ -4,6 +4,19 @@ use crate::actions::Action;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
+    Dynamics(crate::controller_flow::Dynamics),
+    GateMode(crate::gate::Mode),
+    GateImport,
+    SelectTarget(crate::controller_flow::Target),
+    KeybedBank(i32),
+    Rotary {
+        field: crate::processing::Field,
+        steps: i32,
+    },
+    GuardedLevel {
+        target: crate::controller_flow::Target,
+        steps: i32,
+    },
     Menu,
     Grant,
     ReleaseWriter,

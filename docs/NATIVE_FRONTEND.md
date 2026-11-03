@@ -927,3 +927,36 @@ opt-in requires `GP_METER_PROVIDER` and producer-exported `GP_METER_TOPOLOGY_DIR
 `GP_METER_CPU=1` additionally uses the inspected CPU lavapipe ICD with display
 variables unset at normal/resized viewports; `GP_METER_EVIDENCE_DIR` retains private
 provider-fed PPM scenes. Physical display/audio/controller acceptance is separate.
+
+## Gate v5 and explicit keybed targets
+
+Dynamic processing requests now use `GP07-processing:5`; legacy C-AUDIO:1 sessions
+retain processing v2 and cannot write gates. Historical v4 read-only observations
+remain decodable; mutation replies must match the selected v5 session. Gate DTOs
+live in `src/gate.rs` without DSP. The nested config and optional state/attenuation
+are checked independently of compressor GR, and use the existing pending/review,
+revision, freshness and generation machinery. Gate state during a configuration
+crossfade is unavailable; configured target settings remain visible.
+
+`tests/fixtures/gate/v5/snapshot.json` is actual synthetic producer output from
+GigPies `tests/gate.rs::persistence_v5_readback_and_legacy_refusal`, SHA-256
+`50accc28815f25f23565848593bb54dfdcfbe42cb63c4b17328469902b3b4589`.
+Reproduce from GigPies with `GP_GATE_FIXTURE=/tmp/gigpies-gate-v5.json
+CARGO_INCREMENTAL=0 cargo test --locked -j1 --test gate
+persistence_v5_readback_and_legacy_refusal`. The consumer test checks separate gate
+state/attenuation, absent compressor GR and legacy-version refusal. That fixture is codec acceptance. The separate
+`tests/gp07_frontend.rs::gate_v5_actual_producer_review_import_and_reconnect`
+now drives the actual synthetic 16-input GigPies producer and Frontend: Manual
+and prepared-import reviews, confirmed v5 mutations, other-input preservation,
+draft selection fences, read-only reconnect and stale refusal. Reproduce with
+`GP_GATE_SOURCE=/home/shome/p/gigpies/target/debug/examples/spectrum-source cargo
+test --locked -j1 --test gp07_frontend gate_v5_actual -- --ignored --nocapture`.
+It opens no devices and does not qualify Master integration or physical operation.
+
+The terminal keybed uses `controller_flow::Target::{Input(String),Master}` through
+semantic commands. It reserves three rows, uses a separate 24-slot bank and keeps
+existing 12-input detail banking. Selection refuses while a draft/review is open.
+Mute comes from fresh actual values, recording from fresh epoch/take/raw mapping,
+and solo remains unavailable because no provider contract supports it. Recorder
+read-only probing starts independently of opening the Recorder page. Master
+selection cannot fall back to a channel; gain/pan/mute writes remain unavailable.

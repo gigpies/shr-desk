@@ -1324,6 +1324,7 @@ fn processing_selection_uses_identity_after_independent_inventory_reorder() {
 fn changed_inventory_preserves_identity_and_revokes_queued_edits() {
     let mut f = surface();
     f.selected = 7;
+    f.keybed_bank = 1;
     f.key("E").unwrap();
     let mut update = f.state.as_ref().unwrap().clone();
     update.snapshot.as_mut().unwrap().authority.inputs.reverse();
@@ -1331,6 +1332,7 @@ fn changed_inventory_preserves_identity_and_revokes_queued_edits() {
     let generation = f.provider.generation();
     f.accept_update(update.clone());
     assert_eq!(f.selected, 0);
+    assert_eq!(f.keybed_bank, 0);
     assert_eq!(f.processing_draft.as_ref().unwrap().input, "input-08");
     assert!(f.queue.is_empty());
     assert!(f.state.is_none());
@@ -1505,7 +1507,7 @@ fn four_band_extreme_values_all_endpoints_fit_without_truncation_or_overlap() {
     p.channels[0].current = crate::processing::decode_config(&value).unwrap();
     p.channels[0].target = p.channels[0].current.clone();
     f.key("E").unwrap();
-    for i in 0..24 {
+    for i in 0..crate::processing::FIELDS.len() {
         assert_eq!(f.processing_field, i);
         let scene = f.scene();
         let mut rows = Vec::new();
@@ -1558,12 +1560,12 @@ fn zero_size_review_never_counts_as_presented_and_all24_values_are_reviewable() 
     f.width = 540;
     f.height = 960;
     let scene = f.scene();
-    for field in fields {
+    for field in fields.iter().take(32) {
         assert!(
             scene
                 .primitives
                 .iter()
-                .any(|p| matches!(p,Primitive::Text{value,..} if value==&field)),
+                .any(|p| matches!(p,Primitive::Text{value,..} if value==field)),
             "{field}"
         );
     }
@@ -1571,6 +1573,19 @@ fn zero_size_review_never_counts_as_presented_and_all24_values_are_reviewable() 
     f.state.as_mut().unwrap().received = Instant::now();
     f.mark_presented();
     assert_eq!(f.review_seen.len(), 1);
+    f.action(Action::Console(
+        crate::controller_surface::Command::ReviewPage(1),
+    ))
+    .unwrap();
+    let scene = f.scene();
+    assert!(
+        scene
+            .primitives
+            .iter()
+            .any(|p| matches!(p,Primitive::Text{value,..} if value==fields.last().unwrap()))
+    );
+    f.mark_presented();
+    assert_eq!(f.review_seen.len(), 2);
 }
 #[test]
 fn injected_local_field_burst_does_not_fill_provider_release_queue() {
@@ -1593,7 +1608,7 @@ fn injected_local_field_burst_does_not_fill_provider_release_queue() {
         rx.try_recv().unwrap().operation,
         Operation::InputReleased
     ));
-    for _ in 0..24 {
+    for _ in 0..crate::processing::FIELDS.len() {
         f.inject_controller(Action::ProcessingField(1)).unwrap();
         f.pump();
     }
@@ -1644,7 +1659,7 @@ fn review_navigation_does_not_fill_provider_release_queue() {
     let (mut f, rx) = master_surface();
     f.state.as_mut().unwrap().review = Some((10, "review line\n".repeat(100)));
     f.synchronize_review();
-    for _ in 0..24 {
+    for _ in 0..crate::processing::FIELDS.len() {
         for pressed in [true, false] {
             f.enqueue(Event::Key {
                 key: "PageDown".into(),
@@ -1655,7 +1670,7 @@ fn review_navigation_does_not_fill_provider_release_queue() {
         }
     }
 
-    for _ in 0..24 {
+    for _ in 0..crate::processing::FIELDS.len() {
         f.inject_controller(Action::Console(
             crate::controller_surface::Command::ReviewPage(1),
         ))
@@ -1666,4 +1681,148 @@ fn review_navigation_does_not_fill_provider_release_queue() {
         rx.try_recv().is_err(),
         "local review navigation must not send provider traffic"
     );
+}
+
+#[test]
+fn gate_modes_and_measured_import_stay_in_guarded_review() {
+    use crate::controller_surface::Command as C;
+    let (mut f, rx) = brain_surface();
+    f.brain_page = false;
+    f.console_command(C::GateMode(crate::gate::Mode::Automatic))
+        .unwrap();
+    let input = f.selected_input().unwrap().to_owned();
+    let config = crate::gate::Config {
+        bypass: false,
+        threshold_mdb: -26000,
+        hold_ms: 400,
+        release_ms: 200,
+        ..Default::default()
+    };
+    let mut proposal = json!({"version":1,"input":input,"calibration_id":"train","evaluation_id":"eval",
+        "proposal":{"config":config,"confidence":0.75,"reason":"prepared","measurements":{
+        "quiet_hit_db":-20.,"bleed_p95_db":-40.,"decay_p90_ms":400.,"evaluation_hits":8,
+        "evaluation_missed_hits":0,"evaluation_bleed_windows":8,"evaluation_false_openings":0}}});
+    f.import_gate_proposal(&serde_json::to_vec(&proposal).unwrap())
+        .unwrap();
+    assert_eq!(f.processing_draft.as_ref().unwrap().config.gate, config);
+    assert!(f.message.contains("75%"));
+    assert!(rx.try_recv().is_err());
+    proposal["input"] = json!("input-99");
+    assert!(
+        f.import_gate_proposal(&serde_json::to_vec(&proposal).unwrap())
+            .is_err()
+    );
+    f.console_command(C::GateMode(crate::gate::Mode::Manual))
+        .unwrap();
+    assert!(
+        f.console_command(C::GateMode(crate::gate::Mode::Tom))
+            .is_err()
+    );
+    f.processing_draft.as_mut().unwrap().config.gate.detector_hz = 180;
+    f.console_command(C::GateMode(crate::gate::Mode::Tom))
+        .unwrap();
+    assert_eq!(
+        f.processing_draft.as_ref().unwrap().config.gate.detector_hz,
+        180
+    );
+    f.action(Action::ProcessingApply).unwrap();
+    assert!(matches!(
+        rx.try_recv().unwrap().operation,
+        Operation::ReviewProcessing { .. }
+    ));
+    assert!(
+        rx.try_recv().is_err(),
+        "review request never confirms itself"
+    );
+}
+
+#[test]
+fn complete_controller_messages_edit_draft_and_preserve_selection_guards() {
+    use crate::controller_flow::{Input, Profile, Rotary};
+    let (mut f, rx) = brain_surface();
+    f.brain_page = false;
+    f.controller_identity = Some("test-minilab".into());
+    let mut input = Input::new(Profile {
+        endpoint: "test-minilab".into(),
+        rotary_channel: 0,
+        rotaries: std::array::from_fn(|i| Rotary {
+            cc: 16 + i as u8,
+            encoding: crate::midi::Relative::TwosComplement,
+            alternate: None,
+        }),
+        shift: Some((vec![0xb0, 90, 127], vec![0xb0, 90, 0])),
+        key_channel: 0,
+        anchor: 48,
+        pad_channel: 9,
+        pads: [
+            [36, 37, 38, 39, 40, 41, 42, 43],
+            [44, 45, 46, 47, 48, 49, 50, 51],
+        ],
+        pitch_channel: 0,
+        pitch_returns_to_center: false,
+        hardware_qualified: false,
+    })
+    .unwrap();
+    for (ms, bytes) in [(0, [0xb0, 24, 1]), (1, [0xb0, 90, 127]), (2, [0xb0, 24, 2])] {
+        f.inject_controller_flow(&mut input, "test-minilab", &bytes, 1, ms)
+            .unwrap();
+        f.pump();
+    }
+    assert_eq!(
+        f.processing_draft.as_ref().unwrap().config.band1_gain_mdb,
+        300
+    );
+    assert!(rx.try_recv().is_err(), "rotary only edits a local draft");
+    f.inject_controller_flow(&mut input, "test-minilab", &[0xb0, 90, 0], 1, 3)
+        .unwrap();
+    f.inject_controller_flow(&mut input, "test-minilab", &[0x90, 72, 100], 1, 4)
+        .unwrap();
+    f.pump();
+    assert!(!f.selected_master, "selection cannot discard the draft");
+    assert!(
+        f.inject_controller_flow(&mut input, "wrong-endpoint", &[0xb0, 24, 1], 1, 5)
+            .is_err()
+    );
+    assert_eq!(
+        f.processing_draft.as_ref().unwrap().config.band1_gain_mdb,
+        300
+    );
+}
+
+#[test]
+fn feedback_output_failure_does_not_close_frontend_input() {
+    struct Failed;
+    impl crate::controller_flow::Output for Failed {
+        fn send(&mut self, endpoint: &str, packet: &[u8]) -> Result<(), String> {
+            assert_eq!(endpoint, "fixture-output");
+            assert_eq!(packet.len(), 12);
+            Err("injected output failure".into())
+        }
+    }
+    let (mut f, rx) = brain_surface();
+    f.brain_page = false;
+    f.attach_controller_feedback(
+        "fixture-output".into(),
+        "arturia-minilab-mkii-pad-v1",
+        Failed,
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !f.controller_feedback_failed() {
+        f.pump();
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    f.console_command(crate::controller_surface::Command::Rotary {
+        field: crate::processing::Field::Band1Gain,
+        steps: 1,
+    })
+    .unwrap();
+    assert_eq!(
+        f.processing_draft.as_ref().unwrap().config.band1_gain_mdb,
+        100
+    );
+    assert!(rx.try_recv().is_err());
+    f.detach_controller_feedback();
+    assert!(!f.controller_feedback_failed());
 }

@@ -26,11 +26,27 @@ bindings and device acceptance remain unfinished under
 [GP-H2](https://github.com/gigpies/gigpies/blob/main/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-h2--physical-dual-console-operation).
 The key references below document the optional computer-keyboard fallback.
 
-## Channel EQ and compression
+## Selecting inputs and Master
+
+The terminal requires 160×49 cells. Its three-row strip has 24 input slots and a
+separate Master key; click to select, and use PageUp/PageDown for other input
+banks. Green plus `>` identifies selection. R/S/M are independent status readouts,
+never toggles; `?` means unknown/unavailable. Solo and Master gain controls are
+currently unavailable. Finish or cancel a draft/review before selecting elsewhere.
+
+## Channel EQ, compression and Gate
 
 With processing enabled, **F2** opens Channel in FOH scope. Select a parameter,
 use **U/I** to select a field and **J/K** to adjust it, then **F4** opens the review. Read the complete review and press
 **Enter** separately to apply. **Esc** cancels an unsubmitted edit.
+
+Click the labelled Compressor/Gate selector to change columns 5–7. Gate offers
+threshold/attack, hold/release and range/hysteresis; detector Hz/Q and bypass are
+in its menu. Manual uses the full-band detector. Tom requires you to set its
+measured detector frequency first. Automatic Import accepts the absolute path of
+a GigPies `gate-prepare` proposal and shows its confidence/reason. It fills a local
+draft; review it before applying. An uncertain proposal stays bypassed. Prepared
+settings remain fixed during performance.
 
 The four EQ frequency/gain pairs occupy the left side; compressor controls are
 in the middle; pan and level are on the right. Blue marks selection and amber

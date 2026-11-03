@@ -2,6 +2,53 @@
 use super::*;
 use crate::controller_surface::{Command as C, Item};
 impl Frontend {
+    /// Explicit injected output endpoint. The transport owns any device handle;
+    /// this method never discovers or opens hardware. Input remains independent.
+    pub fn attach_controller_feedback(
+        &mut self,
+        endpoint: String,
+        protocol: &str,
+        output: impl crate::controller_flow::Output + Send + 'static,
+    ) -> Result<(), String> {
+        let worker = crate::controller_flow::FeedbackWorker::spawn(endpoint, protocol, output)?;
+        self.controller_feedback_worker = Some((u64::MAX, worker));
+        Ok(())
+    }
+    pub fn detach_controller_feedback(&mut self) {
+        self.controller_feedback_worker = None;
+    }
+    pub fn controller_feedback_failed(&self) -> bool {
+        self.controller_feedback_worker
+            .as_ref()
+            .is_some_and(|(_, w)| w.failed())
+    }
+
+    pub fn import_gate_proposal(&mut self, bytes: &[u8]) -> Result<(), String> {
+        if !self.processing_ready() || self.state.as_ref().is_some_and(|u| u.review.is_some()) {
+            return Err("gate import requires fresh processing and no review".into());
+        }
+        let input = self
+            .selected_input()
+            .ok_or("gate input unavailable")?
+            .to_owned();
+        let proposal = crate::gate::PreparedDocument::decode(bytes, &input)?;
+        let d = self
+            .processing_draft
+            .as_mut()
+            .ok_or("open processing draft first")?;
+        if d.input != input || d.generation != self.provider.generation() {
+            return Err("gate draft context changed".into());
+        }
+        d.config.gate = proposal.proposal.config;
+        self.message = format!(
+            "Gate {:?}, confidence {:.0}% — frozen local proposal; Review/Apply required",
+            proposal.proposal.reason,
+            proposal.proposal.confidence * 100.
+        );
+        self.processing_entry.clear();
+        self.gate_import = false;
+        Ok(())
+    }
     /// Adapter boundary for complete messages from the explicitly assigned endpoint.
     /// The caller retains the acquisition generation; old input is never restamped.
     pub fn inject_surface_midi(
@@ -29,6 +76,126 @@ impl Frontend {
 
     pub(super) fn console_command(&mut self, command: C) -> Result<(), String> {
         match command {
+            C::Dynamics(mode) => {
+                self.dynamics_mode = mode;
+                self.controller_surface.lost();
+                Ok(())
+            }
+
+            C::GateMode(mode) => {
+                if self.processing_draft.is_none() {
+                    self.action(Action::ProcessingEdit)?;
+                }
+                if !self.processing_ready()
+                    || self.state.as_ref().is_some_and(|u| u.review.is_some())
+                {
+                    return Err("gate requires fresh processing and no review".into());
+                }
+                let input = self
+                    .selected_input()
+                    .ok_or("gate input unavailable")?
+                    .to_owned();
+                let d = self.processing_draft.as_mut().unwrap();
+                if d.input != input || d.generation != self.provider.generation() {
+                    return Err("gate draft context changed".into());
+                }
+                match mode {
+                    crate::gate::Mode::Manual => {
+                        d.config.gate.detector_hz = 0;
+                        d.config.gate.bypass = false;
+                    }
+                    crate::gate::Mode::Tom => {
+                        if d.config.gate.detector_hz == 0 {
+                            return Err(
+                                "Set measured tom detector Hz/Q in Detector menu first".into()
+                            );
+                        }
+                        d.config.gate.bypass = false;
+                    }
+                    crate::gate::Mode::Automatic => {
+                        self.processing_entry.clear();
+                        self.gate_import = true;
+                        self.message = "Automatic: enter absolute gate-prepare proposal path; Enter imports into local review draft".into();
+                    }
+                }
+                Ok(())
+            }
+            C::GateImport => {
+                use std::io::Read;
+                if !self.gate_import || !self.processing_ready() {
+                    return Err("automatic gate import unavailable".into());
+                }
+                let path = std::path::Path::new(&self.processing_entry);
+                if !path.is_absolute() {
+                    return Err("absolute gate proposal path required".into());
+                }
+                if !path.metadata().map_err(|e| e.to_string())?.is_file() {
+                    return Err("regular gate proposal file required".into());
+                }
+                let mut bytes = Vec::new();
+                std::fs::File::open(path)
+                    .map_err(|e| e.to_string())?
+                    .take(16 * 1024 + 1)
+                    .read_to_end(&mut bytes)
+                    .map_err(|e| e.to_string())?;
+                self.import_gate_proposal(&bytes)
+            }
+
+            C::SelectTarget(target) => self.select_keybed_target(target),
+            C::KeybedBank(delta) => {
+                let n = self
+                    .state
+                    .as_ref()
+                    .and_then(|s| s.snapshot.as_ref())
+                    .map_or(0, |s| s.authority.inputs.len());
+                self.keybed_bank = (self.keybed_bank as i64 + i64::from(delta.clamp(-1, 1)))
+                    .rem_euclid(n.div_ceil(24).max(1) as i64)
+                    as usize;
+                Ok(())
+            }
+            C::Rotary { field, steps } => {
+                let index = crate::processing::FIELDS
+                    .iter()
+                    .position(|f| *f == field)
+                    .ok_or("field unavailable")?;
+                self.channel_panel_field(index)?;
+                self.action(Action::ProcessingAdjust(steps.clamp(-8, 8)))
+            }
+            C::GuardedLevel { target, steps } => {
+                if target != self.controller_target().ok_or("target unavailable")? {
+                    return Err("controller target changed".into());
+                }
+                if target == crate::controller_flow::Target::Master {
+                    return Err("Master gain contract unavailable".into());
+                }
+                let t = self.target("fader")?;
+                let current = self
+                    .state
+                    .as_ref()
+                    .and_then(|s| s.snapshot.as_ref())
+                    .and_then(|s| {
+                        s.authority
+                            .parameters
+                            .iter()
+                            .find(|p| crate::audio::target_value(&p.target) == t)
+                    })
+                    .and_then(|p| p.target_value.as_i64())
+                    .ok_or("gain unavailable")?;
+                let value = crate::controller_flow::GainPolicy::CHANNEL
+                    .steps(current as f64 / 1000., steps);
+                // Provider supports 0.1 dB steps. Never round an upward guard result up.
+                let next = if steps > 0 {
+                    (value * 10. + 1e-9).floor()
+                } else {
+                    (value * 10. - 1e-9).ceil()
+                } as i64
+                    * 100;
+                if next == current {
+                    return Ok(());
+                }
+                self.adjust("fader", next - current, false)
+            }
+
             C::Menu => {
                 self.controller_surface
                     .gesture(crate::controller_surface::Gesture::Menu, &[]);
@@ -114,6 +281,10 @@ impl Frontend {
             C::EntryAppend(text) => self.controller_text(Some(&text)),
             C::EntryBackspace => self.controller_text(None),
             C::EntryAccept => {
+                if self.gate_import {
+                    return self.console_command(C::GateImport);
+                }
+
                 let action = if let Some(d) = &self.exact_draft {
                     Action::ExactText(d.text.clone())
                 } else if let Some(s) = &self.send_entry {
@@ -192,7 +363,10 @@ impl Frontend {
         } else if self.structural_draft.is_some() {
             (&mut self.processing_entry, 48 * 1024)
         } else if self.processing_draft.is_some() {
-            (&mut self.processing_entry, 16)
+            (
+                &mut self.processing_entry,
+                if self.gate_import { 1024 } else { 16 },
+            )
         } else {
             return Err("open a value editor first".into());
         };
@@ -301,6 +475,27 @@ impl Frontend {
         add("Review draft", Action::Console(C::ReviewDraft));
         add("Cancel", Action::Cancel);
         add("Channel processing", Action::ProcessingEdit);
+        add(
+            "Compressor rotaries",
+            Action::Console(C::Dynamics(crate::controller_flow::Dynamics::Compressor)),
+        );
+        add(
+            "Gate rotaries",
+            Action::Console(C::Dynamics(crate::controller_flow::Dynamics::Gate)),
+        );
+        add(
+            "Gate manual",
+            Action::Console(C::GateMode(crate::gate::Mode::Manual)),
+        );
+        add(
+            "Gate tom",
+            Action::Console(C::GateMode(crate::gate::Mode::Tom)),
+        );
+        add(
+            "Gate automatic import",
+            Action::Console(C::GateMode(crate::gate::Mode::Automatic)),
+        );
+
         add("Previous parameter", Action::ProcessingField(-1));
         add("Next parameter", Action::ProcessingField(1));
         add("Decrease parameter", Action::ProcessingAdjust(-1));
@@ -516,5 +711,206 @@ impl Frontend {
             }
         }
         items
+    }
+}
+
+impl Frontend {
+    pub fn controller_target(&self) -> Option<crate::controller_flow::Target> {
+        if self.selected_master {
+            Some(crate::controller_flow::Target::Master)
+        } else {
+            self.selected_input()
+                .map(|id| crate::controller_flow::Target::Input(id.into()))
+        }
+    }
+    fn select_keybed_target(
+        &mut self,
+        target: crate::controller_flow::Target,
+    ) -> Result<(), String> {
+        if self.processing_draft.is_some()
+            || self.structural_draft.is_some()
+            || self.device_draft.is_some()
+            || self.send_draft.is_some()
+            || self.exact_draft.is_some()
+            || self.fx_ui.text.is_some()
+            || self.measurement_ui.editor.is_some()
+            || self.state.as_ref().is_some_and(|s| s.review.is_some())
+        {
+            return Err("Finish or cancel the current draft/review before selecting a key".into());
+        }
+        let index = match &target {
+            crate::controller_flow::Target::Master => None,
+            crate::controller_flow::Target::Input(id) => Some(
+                self.state
+                    .as_ref()
+                    .and_then(|s| s.snapshot.as_ref())
+                    .and_then(|s| s.authority.inputs.iter().position(|i| i == id))
+                    .ok_or("input unavailable")?,
+            ),
+        };
+        self.fence();
+        self.selected_master = index.is_none();
+        if let Some(i) = index {
+            self.selected = i;
+            self.keybed_bank = i / 24;
+        }
+        self.message = format!(
+            "Selected {:?}; bank {}–{}",
+            target,
+            self.keybed_bank * 24 + 1,
+            self.keybed_bank * 24 + 24
+        );
+        Ok(())
+    }
+    /// Complete-message software transport integration. Caller owns input lifetime and generation.
+    pub fn inject_controller_flow(
+        &mut self,
+        input: &mut crate::controller_flow::Input,
+        endpoint: &str,
+        bytes: &[u8],
+        generation: u64,
+        now_ms: u64,
+    ) -> Result<(), String> {
+        use crate::controller_flow::Intent as I;
+        if self.controller_identity.as_deref() != Some(endpoint)
+            || generation != self.provider.generation()
+            || !self.focused
+            || !self.device_ready
+            || !self.provider.authorization.load(Ordering::Acquire)
+        {
+            input.reset(self.provider.generation());
+            return Err("controller context unavailable".into());
+        }
+        let target = self
+            .controller_target()
+            .ok_or("selected target unavailable")?;
+        let Some(intent) = input.decode(
+            endpoint,
+            bytes,
+            generation,
+            now_ms,
+            target.clone(),
+            self.dynamics_mode,
+        ) else {
+            return Ok(());
+        };
+        let action = match intent {
+            I::Processing { field, steps } => Action::Console(C::Rotary { field, steps }),
+            I::Level { target, steps } => Action::Console(C::GuardedLevel { target, steps }),
+            I::Pan { target: t, steps }
+                if t == target && t != crate::controller_flow::Target::Master =>
+            {
+                Action::AdjustPan(steps as i16)
+            }
+            I::SelectMaster => {
+                Action::Console(C::SelectTarget(crate::controller_flow::Target::Master))
+            }
+            I::SelectSlot(slot) => {
+                let id = self
+                    .state
+                    .as_ref()
+                    .and_then(|s| s.snapshot.as_ref())
+                    .and_then(|s| s.authority.inputs.get(self.keybed_bank * 24 + slot))
+                    .ok_or("unavailable key slot")?;
+                Action::Console(C::SelectTarget(crate::controller_flow::Target::Input(
+                    id.clone(),
+                )))
+            }
+            I::Pad {
+                bank: 0,
+                index,
+                pressed,
+            } => {
+                return self.enqueue(Event::Gesture {
+                    gesture: crate::controller_surface::Gesture::Pad { index, pressed },
+                    generation,
+                });
+            }
+            I::Pad {
+                bank: 1,
+                pressed: true,
+                ..
+            } => return Ok(()),
+            I::Pad {
+                bank: 1,
+                index,
+                pressed: false,
+            } => match index {
+                0 => Action::Page(Page::Mix),
+                1 => Action::Page(Page::Channel),
+                2 => Action::SendsPage,
+                3 => Action::Console(C::Menu),
+                4 => Action::Console(C::Grant),
+                5 => Action::Release,
+                6 => Action::Cancel,
+                7 => Action::Console(C::Reconnect),
+                _ => return Ok(()),
+            },
+            I::Pad { .. } => return Ok(()),
+            I::MasterSpeed(_) | I::Pan { .. } => {
+                return Err("Master provider gain/pan contract unavailable".into());
+            }
+        };
+        self.enqueue(Event::Controller { action, generation })
+    }
+}
+impl Frontend {
+    /// Latest-state mailbox source for the normal menu's eight physical pads.
+    pub fn controller_feedback(&self) -> [crate::controller_flow::Colour; 16] {
+        use crate::controller_flow::{Colour, PadState, pad_colour};
+        let mut colours = [Colour::Off; 16];
+        let labels = [
+            "Previous",
+            "Next",
+            "Choose",
+            "Cancel",
+            "Character−",
+            "Character+",
+            "Add",
+            "Delete",
+        ];
+        let active = self.focused
+            && self.device_ready
+            && self.provider.authorization.load(Ordering::Acquire);
+        for (i, label) in labels.iter().enumerate() {
+            colours[i] = pad_colour(
+                label,
+                if active {
+                    PadState::Navigation
+                } else {
+                    PadState::Unavailable
+                },
+            );
+        }
+        let labels = [
+            "Mix",
+            "Channel",
+            "Sends",
+            "Controls",
+            "Writer grant",
+            "Release Hold",
+            "Cancel",
+            "Reconnect",
+        ];
+        for (i, label) in labels.iter().enumerate() {
+            colours[8 + i] = pad_colour(
+                label,
+                if active {
+                    PadState::Navigation
+                } else {
+                    PadState::Unavailable
+                },
+            );
+        }
+        if self.controller_surface.open && active {
+            colours[2] = Colour::Cyan;
+        }
+        if active && self.fresh() && self.state.as_ref().is_some_and(|u| u.writer_granted()) {
+            colours[12] = Colour::Green;
+        }
+        if active && self.state.as_ref().is_some_and(|u| u.review.is_some()) {
+            colours[14] = Colour::Yellow;
+        }
+        colours
     }
 }

@@ -68,3 +68,6 @@ pub mod controller_surface;
 pub mod recorder;
 
 pub mod fx_aux;
+
+pub mod controller_flow;
+pub mod gate;

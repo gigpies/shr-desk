@@ -62,6 +62,10 @@ fn one_lost_readonly_processing_observation_does_not_disable_future_polls() {
                     v["snapshot"]["sequence"] = sequence.to_string().into();
                     v
                 }
+                "module_status" => {
+                    serde_json::from_str(include_str!("fixtures/gp05/v1/status-unavailable.json"))
+                        .unwrap()
+                }
                 "snapshot" => {
                     let mut v = corpus["grant_response"].clone();
                     for k in ["writer", "lease", "request_id", "expected_revision"] {

@@ -2016,7 +2016,7 @@ dependencies = [
 
 [[package]]
 name = "shr-instrument-panel"
-version = "0.3.1"
+version = "0.3.2"
 source = "sparse+https://shr-panel.invalid/index/"
 dependencies = [
  "libc",

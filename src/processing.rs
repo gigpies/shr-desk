@@ -5,6 +5,8 @@ use serde_json::Value;
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(default, skip_serializing_if = "crate::gate::Config::is_default")]
+    pub gate: crate::gate::Config,
     pub eq_bypass: bool,
     pub band1_hz: i32,
     pub band1_gain_mdb: i32,
@@ -32,6 +34,7 @@ pub struct Config {
 }
 impl Config {
     pub fn validate(&self) -> Result<(), String> {
+        self.gate.validate()?;
         for (value, min, max, step) in [
             (self.band1_hz, 20, 20000, 1),
             (self.band1_gain_mdb, -12000, 12000, 100),
@@ -59,7 +62,58 @@ impl Config {
         Ok(())
     }
     pub fn adjust(&mut self, field: Field, steps: i32) -> Result<(), String> {
+        if field == Field::GateBypass {
+            self.gate.bypass = !self.gate.bypass;
+            return Ok(());
+        }
         let mut candidate = self.clone();
+        let gate_value = match field {
+            Field::GateThreshold => Some((self.gate.threshold_mdb as i64, 100i64)),
+            Field::GateAttack => Some((self.gate.attack_us as i64, 100i64)),
+            Field::GateHold => Some((self.gate.hold_ms as i64, 1i64)),
+            Field::GateRelease => Some((self.gate.release_ms as i64, 1i64)),
+            Field::GateRange => Some((self.gate.range_mdb as i64, 100i64)),
+            Field::GateHysteresis => Some((self.gate.hysteresis_mdb as i64, 100i64)),
+            Field::GateDetectorHz => Some((self.gate.detector_hz as i64, 1i64)),
+            Field::GateDetectorQ => Some((self.gate.detector_q_milli as i64, 100i64)),
+            _ => None,
+        };
+        if let Some((old, step)) = gate_value {
+            let v = old
+                .checked_add(i64::from(steps) * step)
+                .ok_or("gate overflow")?;
+            match field {
+                Field::GateThreshold => {
+                    candidate.gate.threshold_mdb = v.try_into().map_err(|_| "gate range")?
+                }
+                Field::GateAttack => {
+                    candidate.gate.attack_us = v.try_into().map_err(|_| "gate range")?
+                }
+                Field::GateHold => {
+                    candidate.gate.hold_ms = v.try_into().map_err(|_| "gate range")?
+                }
+                Field::GateRelease => {
+                    candidate.gate.release_ms = v.try_into().map_err(|_| "gate range")?
+                }
+                Field::GateRange => {
+                    candidate.gate.range_mdb = v.try_into().map_err(|_| "gate range")?
+                }
+                Field::GateHysteresis => {
+                    candidate.gate.hysteresis_mdb = v.try_into().map_err(|_| "gate range")?
+                }
+                Field::GateDetectorHz => {
+                    candidate.gate.detector_hz = v.try_into().map_err(|_| "gate range")?
+                }
+                Field::GateDetectorQ => {
+                    candidate.gate.detector_q_milli = v.try_into().map_err(|_| "gate range")?
+                }
+                _ => unreachable!(),
+            }
+            candidate.validate()?;
+            *self = candidate;
+            return Ok(());
+        }
+
         let (value, step) = match field {
             Field::EqBypass => {
                 candidate.eq_bypass = !candidate.eq_bypass;
@@ -109,6 +163,7 @@ impl Config {
             Field::Attack => (&mut candidate.attack_us, 100),
             Field::Release => (&mut candidate.release_ms, 1),
             Field::Makeup => (&mut candidate.makeup_mdb, 100),
+            _ => unreachable!("gate handled above"),
         };
         *value = steps
             .checked_mul(step)
@@ -145,6 +200,10 @@ impl Config {
                 | Field::Band4Bypass
                 | Field::CompressorBypass
                 | Field::Release
+                | Field::GateBypass
+                | Field::GateHold
+                | Field::GateRelease
+                | Field::GateDetectorHz
         ) {
             1
         } else {
@@ -174,6 +233,7 @@ impl Config {
             | Field::Band3Bypass
             | Field::Band4Bypass
             | Field::CompressorBypass
+            | Field::GateBypass
                 if !(0..=1).contains(&value) =>
             {
                 return Err("bypass is 0 (enabled) or 1 (bypassed)".into());
@@ -202,6 +262,21 @@ impl Config {
             Field::Attack => c.attack_us = value,
             Field::Release => c.release_ms = value,
             Field::Makeup => c.makeup_mdb = value,
+            Field::GateBypass => c.gate.bypass = value == 1,
+            Field::GateThreshold => c.gate.threshold_mdb = value,
+            Field::GateAttack => c.gate.attack_us = value.try_into().map_err(|_| "gate range")?,
+            Field::GateHold => c.gate.hold_ms = value.try_into().map_err(|_| "gate range")?,
+            Field::GateRelease => c.gate.release_ms = value.try_into().map_err(|_| "gate range")?,
+            Field::GateRange => c.gate.range_mdb = value.try_into().map_err(|_| "gate range")?,
+            Field::GateHysteresis => {
+                c.gate.hysteresis_mdb = value.try_into().map_err(|_| "gate range")?
+            }
+            Field::GateDetectorHz => {
+                c.gate.detector_hz = value.try_into().map_err(|_| "gate range")?
+            }
+            Field::GateDetectorQ => {
+                c.gate.detector_q_milli = value.try_into().map_err(|_| "gate range")?
+            }
         }
         c.validate()?;
         *self = c;
@@ -238,6 +313,30 @@ impl Config {
     }
     pub fn display(&self, field: Field) -> String {
         match field {
+            Field::GateBypass => format!("Gate bypass {}", self.gate.bypass),
+            Field::GateThreshold => format!(
+                "GateThreshold {:.1} dB",
+                self.gate.threshold_mdb as f64 / 1000.
+            ),
+            Field::GateAttack => {
+                format!("Gate attack {:.1} ms", self.gate.attack_us as f64 / 1000.)
+            }
+            Field::GateHold => format!("Gate hold {:.1} ms", self.gate.hold_ms as f64 / 1.),
+            Field::GateRelease => {
+                format!("Gate release {:.1} ms", self.gate.release_ms as f64 / 1.)
+            }
+            Field::GateRange => format!("Gate range {:.1} dB", self.gate.range_mdb as f64 / 1000.),
+            Field::GateHysteresis => format!(
+                "GateHysteresis {:.1} dB",
+                self.gate.hysteresis_mdb as f64 / 1000.
+            ),
+            Field::GateDetectorHz => {
+                format!("Gate detector {:.1} Hz", self.gate.detector_hz as f64 / 1.)
+            }
+            Field::GateDetectorQ => format!(
+                "GateDetectorQ {:.1} Q",
+                self.gate.detector_q_milli as f64 / 1000.
+            ),
             Field::EqBypass => format!("EQ bypass {}", self.eq_bypass),
             Field::Band1Hz => format!("Band 1 bell {} Hz", self.band1_hz),
             Field::Band1Gain => {
@@ -299,8 +398,17 @@ pub enum Field {
     Attack,
     Release,
     Makeup,
+    GateBypass,
+    GateThreshold,
+    GateAttack,
+    GateHold,
+    GateRelease,
+    GateRange,
+    GateHysteresis,
+    GateDetectorHz,
+    GateDetectorQ,
 }
-pub const FIELDS: [Field; 24] = [
+pub const FIELDS: [Field; 33] = [
     Field::EqBypass,
     Field::Band1Hz,
     Field::Band1Gain,
@@ -325,6 +433,15 @@ pub const FIELDS: [Field; 24] = [
     Field::Attack,
     Field::Release,
     Field::Makeup,
+    Field::GateBypass,
+    Field::GateThreshold,
+    Field::GateAttack,
+    Field::GateHold,
+    Field::GateRelease,
+    Field::GateRange,
+    Field::GateHysteresis,
+    Field::GateDetectorHz,
+    Field::GateDetectorQ,
 ];
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -335,6 +452,8 @@ pub struct Channel {
     pub transition_remaining_frames: u16,
     pub ready: bool,
     pub gain_reduction_mdb: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gate: Option<crate::gate::Observation>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -355,7 +474,7 @@ impl Snapshot {
         self.validate_version(2)
     }
     pub(crate) fn validate_version(&self, version: u8) -> Result<(), String> {
-        if !matches!(version, 2 | 4) {
+        if !matches!(version, 2 | 4 | 5) {
             return Err("processing version".into());
         }
         if !provider::uuid(&self.show_id)
@@ -380,6 +499,17 @@ impl Snapshot {
             return Err("processing epoch/sequence must be nonzero".into());
         }
         for (i, c) in self.channels.iter().enumerate() {
+            if version < 5
+                && (!c.current.gate.is_default() || !c.target.gate.is_default() || c.gate.is_some())
+            {
+                return Err("gate requires v5".into());
+            }
+            if c.gate.is_some() != (c.ready && !self.faulted && !c.target.gate.is_default())
+                || c.gate.is_some_and(|g| g.attenuation_mdb > 90000)
+                || (self.faulted && c.gate.is_some())
+            {
+                return Err("gate observation".into());
+            }
             c.current.validate()?;
             c.target.validate()?;
             if c.input != format!("input-{:02}", i + 1)
@@ -434,12 +564,15 @@ pub(crate) fn validate_body_version(body: &Value, version: u8) -> Result<(), Str
     {
         return Err("processing input".into());
     }
-    decode_config(&body["config"])?;
+    let c = decode_config(&body["config"])?;
+    if version == 1 && !c.gate.is_default() {
+        return Err("gate requires dynamic processing v5".into());
+    }
     Ok(())
 }
 pub fn decode_reply(bytes: &[u8]) -> Result<Reply, String> {
     let v = provider::parse_document(bytes)?;
-    if v["version"] != 4 && bytes.len() > provider::MAX_BYTES {
+    if v["version"] != 4 && v["version"] != 5 && bytes.len() > provider::MAX_BYTES {
         return Err("legacy processing capacity".into());
     }
     provider::keys(
@@ -463,17 +596,18 @@ pub fn decode_reply(bytes: &[u8]) -> Result<Reply, String> {
             .as_array()
             .ok_or("processing channels")?
         {
-            provider::keys(
-                c,
-                &[
-                    "input",
-                    "current",
-                    "target",
-                    "transition_remaining_frames",
-                    "ready",
-                    "gain_reduction_mdb",
-                ],
-            )?;
+            let mut fields = vec![
+                "input",
+                "current",
+                "target",
+                "transition_remaining_frames",
+                "ready",
+                "gain_reduction_mdb",
+            ];
+            if c.get("gate").is_some() {
+                fields.push("gate");
+            }
+            provider::keys(c, &fields)?;
         }
     }
     let r: Reply = serde_json::from_value(v).map_err(|e| e.to_string())?;
@@ -481,7 +615,7 @@ pub fn decode_reply(bytes: &[u8]) -> Result<Reply, String> {
     if r.context.epoch == "0" {
         return Err("processing epoch must be nonzero".into());
     }
-    if r.contract != "GP07-processing" || !matches!(r.version, 2 | 4) {
+    if r.contract != "GP07-processing" || !matches!(r.version, 2 | 4 | 5) {
         return Err("processing contract/version".into());
     }
     provider::counter(&r.revision)?;

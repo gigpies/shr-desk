@@ -3,6 +3,7 @@
 mod controller;
 mod fx;
 mod fx_aux;
+mod keybed;
 mod measurement;
 mod provider;
 mod recorder;
@@ -296,6 +297,7 @@ pub struct Frontend {
     record_page: bool,
     pub controller_surface: crate::controller_surface::Surface,
     controller_identity: Option<String>,
+    controller_feedback_worker: Option<(u64, crate::controller_flow::FeedbackWorker)>,
     pub provider: Provider,
     pub state: Option<Update>,
     meter_client: Option<crate::metering::Worker>,
@@ -331,12 +333,16 @@ pub struct Frontend {
     pub send_draft: Option<SendDraft>,
     send_entry: Option<String>,
     pub selected: usize,
+    pub selected_master: bool,
+    pub dynamics_mode: crate::controller_flow::Dynamics,
+    pub keybed_bank: usize,
     topology_page: Option<usize>,
     pub processing_draft: Option<ProcessingDraft>,
     pub structural_draft: Option<crate::structure::Draft>,
     pub structure_text_entry: bool,
     pub processing_field: usize,
     pub processing_entry: String,
+    pub gate_import: bool,
     pub page: Page,
     pub width: u32,
     pub height: u32,
@@ -370,6 +376,7 @@ impl Frontend {
             meter_identity: None,
             controller_surface: Default::default(),
             controller_identity: None,
+            controller_feedback_worker: None,
             meter_generation: 0,
             meters: crate::metering::Cache::default(),
             spectrum: None,
@@ -401,12 +408,16 @@ impl Frontend {
             send_draft: None,
             send_entry: None,
             selected: 0,
+            selected_master: false,
+            dynamics_mode: crate::controller_flow::Dynamics::Compressor,
+            keybed_bank: 0,
             topology_page: None,
             processing_draft: None,
             structural_draft: None,
             structure_text_entry: false,
             processing_field: 0,
             processing_entry: String::new(),
+            gate_import: false,
             page: Page::Mix,
             width: 1920,
             height: 1080,
@@ -968,6 +979,13 @@ impl Frontend {
                 colors: [color; 8],
             })
         };
+        let colours = self.controller_feedback();
+        let generation = self.provider.generation();
+        if let Some((last, worker)) = &mut self.controller_feedback_worker
+            && worker.publish(colours, *last != generation)
+        {
+            *last = generation;
+        }
     }
     pub fn fresh(&self) -> bool {
         self.attachment_fence.is_none() && self.state.as_ref().is_some_and(|s| s.raw_fresh())
@@ -1003,6 +1021,7 @@ impl Frontend {
                 .unwrap_or(0);
             self.fence();
             self.selected = selected;
+            self.keybed_bank = selected / 24;
             let _ = self.provider.send(None, Operation::Cancel);
             // Require the worker to observe the new generation before edits resume.
             self.message = "Inventory changed: intents discarded; refreshing authority".into();
@@ -1107,6 +1126,29 @@ impl Frontend {
         Ok(())
     }
     fn key(&mut self, key: &str) -> Result<(), String> {
+        if self.gate_import && self.processing_draft.is_some() {
+            match key {
+                "Esc" | "Escape" => {
+                    self.gate_import = false;
+                    self.processing_entry.clear();
+                }
+                "Enter" => {
+                    return self.console_command(crate::controller_surface::Command::GateImport);
+                }
+                "Backspace" => {
+                    self.processing_entry.pop();
+                }
+                _ if key.chars().count() == 1 && !key.chars().any(char::is_control) => {
+                    if self.processing_entry.len() + key.len() > 1024 {
+                        return Err("gate path capacity".into());
+                    }
+                    self.processing_entry.push_str(key);
+                }
+                _ => {}
+            }
+            return Ok(());
+        }
+
         if key == "F10" {
             return self.console_command(crate::controller_surface::Command::Menu);
         }
@@ -1809,6 +1851,7 @@ impl Frontend {
                     self.sends_page = false;
                     self.brain_page = false;
                     self.processing_draft = None;
+                    self.gate_import = false;
                     self.structural_draft = None;
                     return self.provider.send(None, Operation::EnableLiveEq);
                 }
@@ -1842,6 +1885,7 @@ impl Frontend {
                 self.brain_page = false;
                 self.topology_page = None;
                 self.processing_draft = None;
+                self.gate_import = false;
                 self.structural_draft = None;
                 self.provider.send(None, Operation::EnableSends)
             }
@@ -1883,6 +1927,7 @@ impl Frontend {
                 self.send_draft = None;
                 self.send_entry = None;
                 self.processing_draft = None;
+                self.gate_import = false;
                 self.structural_draft = None;
                 self.scope = scope.clone();
                 self.module_config.scope = scope.clone();
@@ -2451,6 +2496,7 @@ impl Frontend {
                     config: d.config,
                 })?;
                 self.processing_draft = None;
+                self.gate_import = false;
                 self.processing_entry.clear();
                 self.message = "Apply requested review; no processing edit sent yet".into();
                 Ok(())
@@ -2486,6 +2532,8 @@ impl Frontend {
                 self.send_draft = None;
                 self.send_entry = None;
                 self.selected = selected;
+                self.selected_master = false;
+                self.keybed_bank = selected / 24;
                 Ok(())
             }
             Action::ModePicker => {
@@ -2573,6 +2621,7 @@ impl Frontend {
                 self.send_draft = None;
                 self.send_entry = None;
                 self.processing_draft = None;
+                self.gate_import = false;
                 self.device_draft = None;
                 self.device_draft_context = None;
                 self.device_entry = None;
@@ -2645,6 +2694,9 @@ impl Frontend {
             })
     }
     fn selected_input(&self) -> Option<&str> {
+        if self.selected_master {
+            return None;
+        }
         self.state
             .as_ref()?
             .snapshot
@@ -2683,6 +2735,9 @@ impl Frontend {
             .ok_or_else(|| "monitor scope unavailable".into())
     }
     fn target(&self, parameter: &str) -> Result<Value, String> {
+        if self.selected_master {
+            return Err("Master gain/pan contract unavailable; no channel substitution".into());
+        }
         if self.sends_page
             && (self.scope != format!("monitor{}", self.selected_monitor + 1)
                 || self.send_draft.is_some())
@@ -3110,6 +3165,17 @@ impl Frontend {
         }
         if self.measurement_ui.open {
             return self.measurement_scene();
+        }
+        if self.selected_master {
+            line(12, "MASTER / explicit selected target".into(), "#66dfd3");
+            line(
+                96,
+                "Gain, pan and mute unavailable: no dedicated provider Master contract.".into(),
+                "#f1bd6b",
+            );
+            line(144, "Pitch speed model is not connected to an audio target. Select an input to edit its channel.".into(), "#e4e8e9");
+            line(972, self.message.clone(), "#e4e8e9");
+            return scene;
         }
         if let Some(d) = &self.exact_draft {
             line(
@@ -3703,7 +3769,7 @@ impl Frontend {
                             line(
                                 204,
                                 format!(
-                                    "GP07 FOH: EQ -> compressor -> shared mute/fader/pan | Monitors: separately selected GP18 taps | {}",
+                                    "GP07 FOH: EQ -> gate -> compressor -> shared mute/fader/pan | Monitors: separately selected GP18 taps | {}",
                                     if self.processing_fresh() {
                                         "FRESH"
                                     } else {
@@ -3806,7 +3872,7 @@ impl Frontend {
                                 line(
                                     624,
                                     format!(
-                                        "EDIT FIELD {}/24: {} (local only)",
+                                        "EDIT FIELD {}/33: {} (local only)",
                                         self.processing_field + 1,
                                         draft.config.display(
                                             crate::processing::FIELDS[self.processing_field]
