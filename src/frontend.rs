@@ -4,6 +4,8 @@ mod controller;
 mod fx;
 mod fx_aux;
 mod keybed;
+#[cfg(test)]
+mod master_tests;
 mod measurement;
 mod provider;
 mod recorder;
@@ -48,7 +50,22 @@ pub struct Config {
     pub scope: String,
 }
 #[derive(Clone, Debug)]
+pub struct MotionGuard {
+    signal: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    token: u64,
+    deadline: Instant,
+}
+impl MotionGuard {
+    pub(crate) fn valid(&self) -> bool {
+        self.signal.load(Ordering::Acquire) == self.token && Instant::now() < self.deadline
+    }
+}
+#[derive(Clone, Debug)]
 pub enum Operation {
+    MasterMotion {
+        value: i64,
+        guard: MotionGuard,
+    },
     Record(crate::recorder::Operation),
     Fx(crate::fx::Operation),
     FxAux(crate::fx_aux::Operation),
@@ -209,7 +226,7 @@ pub enum Event {
 }
 fn parameter_display(parameter: &str, value: &Value) -> String {
     match parameter {
-        "fader" | "send" => value.as_i64().map_or("unavailable".into(), |n| {
+        "fader" | "send" | "master_gain" => value.as_i64().map_or("unavailable".into(), |n| {
             format!("{:+.1} dB", n as f64 / 1000.0)
         }),
         "pan" => value.as_i64().map_or("unavailable".into(), |n| {
@@ -334,6 +351,14 @@ pub struct Frontend {
     send_entry: Option<String>,
     pub selected: usize,
     pub selected_master: bool,
+    master_speed: crate::controller_flow::MasterSpeed,
+    master_clock: Instant,
+    master_input: Option<Instant>,
+    master_fraction: f64,
+    master_revision: Option<String>,
+    master_unknown: bool,
+    master_signal: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    master_pending: Option<(String, Instant)>,
     pub dynamics_mode: crate::controller_flow::Dynamics,
     pub keybed_bank: usize,
     topology_page: Option<usize>,
@@ -409,6 +434,14 @@ impl Frontend {
             send_entry: None,
             selected: 0,
             selected_master: false,
+            master_speed: Default::default(),
+            master_clock: Instant::now(),
+            master_input: None,
+            master_fraction: 0.,
+            master_revision: None,
+            master_unknown: false,
+            master_signal: Default::default(),
+            master_pending: None,
             dynamics_mode: crate::controller_flow::Dynamics::Compressor,
             keybed_bank: 0,
             topology_page: None,
@@ -517,6 +550,7 @@ impl Frontend {
         self.fence_local();
     }
     fn fence_local(&mut self) {
+        self.stop_master_motion();
         self.controller_surface.lost();
         self.fx_ui.basis = None;
         if let Some(s) = &self.state
@@ -979,6 +1013,7 @@ impl Frontend {
                 colors: [color; 8],
             })
         };
+        self.pump_master_motion();
         let colours = self.controller_feedback();
         let generation = self.provider.generation();
         if let Some((last, worker)) = &mut self.controller_feedback_worker
@@ -986,6 +1021,14 @@ impl Frontend {
         {
             *last = generation;
         }
+    }
+    pub fn operation_pending(&self) -> bool {
+        self.provider.pending_edits.load(Ordering::Acquire) != 0
+            || self
+                .state
+                .as_ref()
+                .and_then(|u| u.last_operation.as_deref())
+                .is_some_and(|s| s.starts_with("PENDING"))
     }
     pub fn fresh(&self) -> bool {
         self.attachment_fence.is_none() && self.state.as_ref().is_some_and(|s| s.raw_fresh())
@@ -1700,6 +1743,7 @@ impl Frontend {
             })
     }
     fn action(&mut self, action: Action) -> Result<(), String> {
+        self.stop_master_motion();
         if let Action::Console(command) = action {
             return self.console_command(command);
         }
@@ -1785,13 +1829,19 @@ impl Frontend {
                 {
                     return Err("exact editor requires fresh FOH Mix/Channel and no other draft/review/pending".into());
                 }
-                let input = self.selected_input().ok_or("input unavailable")?.to_owned();
+                let exact_target = self.target(parameter.name())?;
+                let input = if self.selected_master {
+                    "main".to_owned()
+                } else {
+                    self.selected_input().ok_or("input unavailable")?.to_owned()
+                };
                 let raw = self.state.as_ref().unwrap().snapshot.as_ref().unwrap();
-                if !raw.authority.parameters.iter().any(|p| {
-                    p.target.input == input
-                        && p.target.parameter == parameter.name()
-                        && p.target.monitor.is_none()
-                }) {
+                if !raw
+                    .authority
+                    .parameters
+                    .iter()
+                    .any(|p| crate::audio::target_value(&p.target) == exact_target)
+                {
                     return Err("parameter unavailable".into());
                 }
                 let retained = self.exact_draft.as_ref().filter(|d| {
@@ -1826,6 +1876,9 @@ impl Frontend {
                     return Err("review already queued; Esc cancels only unsent intent".into());
                 }
                 let value = d.parameter.parse(&text)?;
+                if d.input == "main" && value > 6000 {
+                    return Err("Master maximum is +6 dB".into());
+                }
                 d.text = text;
                 d.value = Some(value);
                 self.message = "Exact text accepted locally; F4 opens complete review".into();
@@ -1840,7 +1893,11 @@ impl Frontend {
                 if d.parameter.parse(&d.text)? != value {
                     return Err("exact text changed; accept again".into());
                 }
-                let target = json!({"input":d.input,"parameter":d.parameter.name()});
+                let target = if d.input == "main" {
+                    json!({"parameter":"master_gain"})
+                } else {
+                    json!({"input":d.input,"parameter":d.parameter.name()})
+                };
                 self.send(Operation::ReviewSet {
                     target,
                     value: json!(value),
@@ -2647,6 +2704,12 @@ impl Frontend {
                 }
                 Ok(())
             }
+            Action::Adjust(delta) if self.selected_master => {
+                self.console_command(crate::controller_surface::Command::GuardedLevel {
+                    target: crate::controller_flow::Target::Master,
+                    steps: delta.signum(),
+                })
+            }
             Action::Adjust(delta) => self.adjust("fader", i64::from(delta), false),
             Action::AdjustPan(delta) => self.adjust("pan", i64::from(delta), false),
             Action::Mute => self.adjust("mute", 0, true),
@@ -2677,7 +2740,8 @@ impl Frontend {
     fn exact_context_valid(&self, d: &ExactDraft) -> bool {
         d.validated
             && d.generation == self.provider.generation()
-            && self.selected_input() == Some(d.input.as_str())
+            && ((self.selected_master && d.input == "main")
+                || self.selected_input() == Some(d.input.as_str()))
             && self.scope == d.scope
             && self.scope == "foh"
             && self.focused
@@ -2743,7 +2807,18 @@ impl Frontend {
     }
     fn target(&self, parameter: &str) -> Result<Value, String> {
         if self.selected_master {
-            return Err("Master gain/pan contract unavailable; no channel substitution".into());
+            if parameter != "fader"
+                || self.scope != "foh"
+                || self
+                    .state
+                    .as_ref()
+                    .and_then(|s| s.snapshot.as_ref())
+                    .and_then(|s| s.master_gain.as_ref())
+                    .is_none()
+            {
+                return Err("Master capability unavailable (pan/mute unsupported)".into());
+            }
+            return Ok(json!({"parameter":"master_gain"}));
         }
         if self.sends_page
             && (self.scope != format!("monitor{}", self.selected_monitor + 1)
@@ -3173,14 +3248,33 @@ impl Frontend {
         if self.measurement_ui.open {
             return self.measurement_scene();
         }
-        if self.selected_master {
-            line(12, "MASTER / explicit selected target".into(), "#66dfd3");
-            line(
-                96,
-                "Gain, pan and mute unavailable: no dedicated provider Master contract.".into(),
-                "#f1bd6b",
+        if self.selected_master && self.exact_draft.is_none() && self.review_id.is_none() {
+            line(12, "MASTER / Main post-FX, pre-PA".into(), "#66dfd3");
+            let gain = self
+                .state
+                .as_ref()
+                .and_then(|s| s.snapshot.as_ref())
+                .and_then(|s| s.master_gain.as_ref());
+            let text = gain.map_or_else(
+                || "UNKNOWN / Master capability unavailable".into(),
+                |g| {
+                    format!(
+                        "{} Applied {:.3} dB / ramp target {:.3} dB",
+                        if self.fresh() { "CURRENT" } else { "STALE" },
+                        20. * (g.current_nanogain as f64 / 1e9).log10(),
+                        20. * (g.target_nanogain as f64 / 1e9).log10()
+                    )
+                },
             );
-            line(144, "Pitch speed model is not connected to an audio target. Select an input to edit its channel.".into(), "#e4e8e9");
+            line(96, text, "#e4e8e9");
+            line(
+                144,
+                "D exact gain | guarded level / slow pitch speed | pan/mute unavailable".into(),
+                "#e4e8e9",
+            );
+            if let Some(result) = self.state.as_ref().and_then(|s| s.last_operation.as_ref()) {
+                line(192, result.clone(), "#f1bd6b");
+            }
             line(972, self.message.clone(), "#e4e8e9");
             return scene;
         }

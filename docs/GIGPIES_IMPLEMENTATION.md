@@ -56,7 +56,7 @@ Controller profiles, Gate presentation and the 24+Master keybed contribute to
 [GP-GATE](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-gate--lightweight-channel-gates-and-tom-decay-control)
 and [GP-PANEL](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#controllerkeybed-implementation--2026-10-30).
 [Controller flows](CONTROLLER.md) defines exact bindings, provisional gain policy,
-software transport boundaries and remaining Master integration. Raw-cue preparation
+software transport boundaries and the implemented dedicated Master gain workflow. Raw-cue preparation
 and actual v5 review/readback acceptance are recorded once in GP-GATE; the Frontend
 feedback-worker integration and pure elapsed-time speed corrections belong to
-GP-PANEL. Neither completes the missing provider Master gain path.
+GP-PANEL. Master acceptance and the remaining physical work are recorded in that same card.

@@ -77,9 +77,13 @@ explicit return-to-center capability: 8% dead zone, quadratic displacement,
 maximum ±0.5 dB/s before the upward guard, 250 ms stale-input/application timeout,
 elapsed-time integration through center transitions, and immediate stop on permission/generation
 loss. Center stops and preserves gain. No finger-release event is assumed.
-**Master speed-to-provider integration is pending** because no dedicated Master
-gain contract exists. The production adapter refuses this intent; model tests
-are not a claim of a working live Master strip. Physical feel remains pending.
+The production Frontend now sends this motion through the dedicated advertised
+Master gain target. One outstanding request bounds work; elapsed-time motion is
+coalesced, with a bounded sub-millidecibel remainder. Center, stale input, focus,
+context, generation, controller or permission loss discard unsent motion. A
+separate cancellation token fences queued motion; submitted uncertain work is
+never replayed. Continuation requires correlated completion and fresh applied
+readback, not merely a matching requested value. Physical feel remains pending.
 The modulation strip/CC1 is unassigned. SHR DAW's separate pitch/CC1 synth
 forwarding is unchanged.
 
@@ -301,5 +305,20 @@ The pure pitch-speed model now integrates the prior velocity up to each event,
 so returning to centre preserves motion accrued between pump calls. It uses
 actual elapsed time without the former 100 ms truncation; stale input, stale
 application (>250 ms), generation change and lost permission discard pending
-motion. The 8% dead zone and ±0.5 dB/s maximum are unchanged. **This model remains
-unconnected to a provider Master target.**
+motion. The 8% dead zone and ±0.5 dB/s maximum are unchanged. The production Frontend now connects this model to the dedicated Master target
+with correlated completion and fresh source readback, as described below.
+
+### Master selection and editing
+
+Choose **Select Master**, then **Exact Master gain** in the semantic menu (or D).
+Accept the decimal dB text, request review, display the review and confirm it.
+The allowed range is −60.0 to +6.0 dB. Column 8's guarded level targets Master
+when explicitly selected; its pan and mute actions remain unavailable. The pitch
+strip always targets Master, independently of the selected input, and requires
+an explicit return-to-center profile and existing FOH grant. Attaching a software
+profile opens no device and grants no authority.
+
+The Master view distinguishes current/applied and ramp target from detached draft,
+pending, refused, stale and UNKNOWN outcomes. Gain coefficients are not measured
+meters. Reconnect is read-only; it does not replay motion, acquire a grant or
+rearm outputs. See the [producer contract](../../gigpies/docs/reference/INSTRUMENT_PANEL.md#master-gain-software-contract).

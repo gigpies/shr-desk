@@ -22,8 +22,9 @@ apply upward gain slowdown, and support a coalesced, rate-limited pad-output
 transport on an independent output worker, installed through the Frontend's
 explicit injected endpoint boundary. Blocked output cannot block input publishing
 or detachment. No hardware controller messages were sent. Master is explicitly selected but
-its gain/pan provider contract and pitch-speed integration remain unimplemented;
-the speed model alone is tested. Physical MIDI acquisition/bindings, return to
+its gain provider contract and pitch-speed integration were unimplemented at this
+checkpoint. The current Master implementation and acceptance live in
+[GP-PANEL](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#controllerkeybed-implementation--2026-10-30); pan/mute remain unavailable. Physical MIDI acquisition/bindings, return to
 center, feel and LED interaction still need qualification.
 
 [Controller guide](CONTROLLER.md) documents mappings and evidence.

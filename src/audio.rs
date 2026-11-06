@@ -72,6 +72,8 @@ pub struct Coefficients {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct RenderedSnapshot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub master_gain: Option<MasterGain>,
     pub capability: String,
     pub capability_version: u8,
     pub rendered_application: bool,
@@ -88,6 +90,14 @@ pub struct RenderedSnapshot {
     pub clock: Option<crate::topology::Clock>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resources: Option<crate::topology::Resources>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct MasterGain {
+    pub version: u32,
+    pub target: String,
+    pub current_nanogain: u64,
+    pub target_nanogain: u64,
 }
 impl RenderedSnapshot {
     pub(crate) fn validate(&self) -> Result<(), String> {
@@ -129,9 +139,23 @@ impl RenderedSnapshot {
         self.authority
             .validate_canonical_version(self.capability_version)?;
         let a = &self.authority;
+        let master = a
+            .parameters
+            .iter()
+            .any(|p| p.target.parameter == "master_gain");
+        if master != self.master_gain.is_some()
+            || self.master_gain.as_ref().is_some_and(|m| {
+                m.version != 1
+                    || m.target != "main"
+                    || !(1_000_000..=1_995_262_315).contains(&m.current_nanogain)
+                    || !(1_000_000..=1_995_262_315).contains(&m.target_nanogain)
+            })
+        {
+            return fail("Master capability/readback");
+        }
         if a.page != 0
             || a.page_count != 1
-            || a.parameters.len() != a.inputs.len() * (3 + a.monitors.len())
+            || a.parameters.len() != a.inputs.len() * (3 + a.monitors.len()) + usize::from(master)
             || self.coefficients.len() != a.inputs.len()
         {
             return fail("incomplete rendered snapshot");
@@ -177,6 +201,9 @@ fn capability(name: &str, version: u8) -> Result<(), String> {
     Ok(())
 }
 pub fn target_value(t: &Target) -> Value {
+    if t.parameter == "master_gain" {
+        return json!({"parameter":"master_gain"});
+    }
     let mut v = json!({"parameter":t.parameter,"input":t.input});
     if let Some(m) = &t.monitor {
         v["monitor"] = m.clone().into();
@@ -291,6 +318,13 @@ pub(crate) fn validate_snapshot_value(v: &Value) -> Result<(), String> {
     ];
     if v["capability_version"] == 2 {
         fields.extend(["topology", "clock", "resources"]);
+    }
+    if let Some(master) = v.get("master_gain") {
+        fields.push("master_gain");
+        provider::keys(
+            master,
+            &["version", "target", "current_nanogain", "target_nanogain"],
+        )?;
     }
     provider::keys(v, &fields)?;
     provider::validate_snapshot_shape(&v["authority"])?;
@@ -2267,7 +2301,9 @@ impl Session {
                     let t: Target = serde_json::from_value(v.clone()).map_err(|e| e.to_string())?;
                     provider::keys(
                         v,
-                        if t.parameter == "send" {
+                        if t.parameter == "master_gain" {
+                            &["parameter"]
+                        } else if t.parameter == "send" {
                             &["parameter", "input", "monitor"]
                         } else {
                             &["parameter", "input"]
@@ -2306,7 +2342,9 @@ impl Session {
                         serde_json::from_value(b["target"].clone()).map_err(|e| e.to_string())?;
                     provider::keys(
                         &b["target"],
-                        if t.parameter == "send" {
+                        if t.parameter == "master_gain" {
+                            &["parameter"]
+                        } else if t.parameter == "send" {
                             &["parameter", "input", "monitor"]
                         } else {
                             &["parameter", "input"]

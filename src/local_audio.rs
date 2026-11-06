@@ -128,6 +128,7 @@ pub struct Operator {
     draft: Option<Draft>,
     scope: String,
     brain_signal: Option<std::sync::Arc<crate::brain::HoldSignal>>,
+    motion_guard: Option<crate::frontend::MotionGuard>,
     guard: Option<(std::sync::Arc<std::sync::atomic::AtomicU64>, u64)>,
 }
 impl Operator {
@@ -220,6 +221,7 @@ impl Operator {
             draft: None,
             scope: scope.into(),
             guard: None,
+            motion_guard: None,
             brain_signal: None,
             brain_probes: BrainProbes::default(),
             held_baseline: None,
@@ -254,7 +256,28 @@ impl Operator {
     pub(crate) fn brain_signal(&mut self, signal: std::sync::Arc<crate::brain::HoldSignal>) {
         self.brain_signal = Some(signal);
     }
+    pub(crate) fn master_motion(
+        &mut self,
+        value: i64,
+        guard: crate::frontend::MotionGuard,
+    ) -> Result<(), String> {
+        if !guard.valid() {
+            return Err("Master motion cancelled/expired".into());
+        }
+        self.motion_guard = Some(guard);
+        let result = self.mutate_ordinary_inner(
+            "set",
+            json!({"targets":[{"target":{"parameter":"master_gain"},"value":value}]}),
+            Instant::now() + Duration::from_millis(250),
+        );
+        let result = result.and_then(|()| self.check_guard());
+        self.motion_guard = None;
+        result
+    }
     fn check_guard(&mut self) -> Result<(), String> {
+        if self.motion_guard.as_ref().is_some_and(|g| !g.valid()) {
+            return Err("UNKNOWN Master motion cancelled/expired; no replay".into());
+        }
         if self
             .brain_signal
             .as_ref()
@@ -2139,14 +2162,18 @@ impl Operator {
             }
             // Service the existing byte-identical retry schedule before blocking.
             // A silent backpressure peer must not hide the100/250/500ms wakes.
-            if let Some(retry) = self.session.retry(self.now()) {
+            if self.motion_guard.is_none()
+                && let Some(retry) = self.session.retry(self.now())
+            {
                 self.transport
                     .send_frame_until(&retry.encode()?, deadline.min(authority_deadline))?;
             }
             let now = self.now();
             let wake = self
-                .session
-                .retry_wake(now)
+                .motion_guard
+                .as_ref()
+                .map(|_| now + 20)
+                .or_else(|| self.session.retry_wake(now))
                 .ok_or("pending authority expired/uncertain; no further retry")?;
             if wake <= now {
                 // At most the three existing retries can already be due.

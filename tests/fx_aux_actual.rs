@@ -514,3 +514,387 @@ fn actual_provider_saved_fx_controls() {
     });
     assert_eq!(snapshot(&f)["buses"], applied["buses"]);
 }
+
+#[test]
+#[ignore = "GP_FX_DESK_CONFIG from bounded actual local or authenticated loopback Master harness"]
+fn actual_provider_master_controls() {
+    use shr_desk::{
+        controller_flow::{Profile, Rotary, Target},
+        exact_value::Parameter,
+        midi::Relative,
+    };
+    let c: Value =
+        serde_json::from_slice(&fs::read(std::env::var("GP_FX_DESK_CONFIG").unwrap()).unwrap())
+            .unwrap();
+    let cfg = Config {
+        wire_version: 2,
+        remote: c
+            .get("remote")
+            .map(|v| serde_json::from_value(v.clone()).unwrap()),
+        endpoint: c["endpoint"]
+            .as_str()
+            .map(PathBuf::from)
+            .unwrap_or_default(),
+        show: c["show"].as_str().unwrap().into(),
+        epoch: 9,
+        writer: "master-desk".into(),
+        scope: "foh".into(),
+    };
+    let mut f = Frontend::new(cfg.clone());
+    wait(&mut f, "Master attach", Frontend::fresh);
+    assert!(!f.state.as_ref().unwrap().writer_granted());
+    let before = f.state.as_ref().unwrap().snapshot.clone().unwrap();
+    let profile = Profile {
+        endpoint: "software-master".into(),
+        rotary_channel: 0,
+        rotaries: std::array::from_fn(|i| Rotary {
+            cc: 16 + i as u8,
+            encoding: Relative::TwosComplement,
+            alternate: None,
+        }),
+        shift: None,
+        key_channel: 0,
+        anchor: 48,
+        pad_channel: 9,
+        pads: [
+            [36, 37, 38, 39, 40, 41, 42, 43],
+            [44, 45, 46, 47, 48, 49, 50, 51],
+        ],
+        pitch_channel: 0,
+        pitch_returns_to_center: true,
+        hardware_qualified: false,
+    };
+    let mut input = f.attach_controller_profile(profile).unwrap();
+    wait(&mut f, "profile attached", Frontend::fresh);
+    let choose = f
+        .controller_items()
+        .into_iter()
+        .find(|i| i.label == "Select Master")
+        .unwrap()
+        .action;
+    f.inject_controller(choose).unwrap();
+    f.pump();
+    wait(&mut f, "Master selection", |f| {
+        f.fresh() && f.controller_target() == Some(Target::Master)
+    });
+    tap(&mut f, "G");
+    wait(&mut f, "FOH grant", |f| {
+        f.state.as_ref().unwrap().writer_granted()
+    });
+    fn render(f: &Frontend) {
+        let scene = f.scene();
+        assert!(scene.in_bounds());
+        let pixels = shr_desk::raster::rgba(&scene);
+        assert_eq!(
+            pixels.len(),
+            (shr_desk::render::WIDTH * shr_desk::render::HEIGHT * 4) as usize
+        );
+        assert!(pixels.chunks_exact(4).all(|p| p[3] == 255));
+        assert!(pixels.chunks_exact(4).any(|p| p[..3] == [0xe4, 0xe8, 0xe9]));
+    }
+    fn reconnect(f: &mut Frontend) {
+        f.inject_controller(Action::Console(
+            shr_desk::controller_surface::Command::Reconnect,
+        ))
+        .unwrap();
+        f.pump();
+        wait(f, "read-only recovery", |f| {
+            f.fresh()
+                && !f.operation_pending()
+                && !f.state.as_ref().unwrap().writer_granted()
+                && f.state
+                    .as_ref()
+                    .unwrap()
+                    .snapshot
+                    .as_ref()
+                    .unwrap()
+                    .master_gain
+                    .as_ref()
+                    .is_some_and(|g| g.current_nanogain == g.target_nanogain)
+        });
+        let stopped = f
+            .state
+            .as_ref()
+            .unwrap()
+            .snapshot
+            .as_ref()
+            .unwrap()
+            .master_gain
+            .clone();
+        // Remote disconnect retains its old two-second lease until expiry.
+        // The production action supplies a fresh local writer. Readback stays
+        // still without granting authority or replaying any motion.
+        let expiry = Instant::now() + Duration::from_millis(2100);
+        while Instant::now() < expiry {
+            f.pump();
+            assert!(!f.state.as_ref().unwrap().writer_granted());
+            if f.fresh() {
+                assert_eq!(
+                    f.state
+                        .as_ref()
+                        .unwrap()
+                        .snapshot
+                        .as_ref()
+                        .unwrap()
+                        .master_gain,
+                    stopped
+                );
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+    fn exact(f: &mut Frontend, text: &str) {
+        wait(f, "Master idle", |f| f.fresh() && !f.operation_pending());
+        let action = f
+            .controller_items()
+            .into_iter()
+            .find(|i| i.label == "Exact Master gain")
+            .unwrap()
+            .action;
+        f.inject_controller(action).unwrap();
+        f.pump();
+        assert!(f.exact_draft.is_some(), "{}", f.message);
+        f.inject_controller(Action::ExactText(text.into())).unwrap();
+        f.pump();
+        render(f);
+        f.inject_controller(Action::ExactApply).unwrap();
+        f.pump();
+        wait(f, "Master review", |f| {
+            f.state.as_ref().unwrap().review.is_some()
+        });
+        f.synchronize_review();
+        render(f);
+        // Software bitmap rendering is deliberately real and can take most of
+        // one observation lifetime on this host. Consume the next fresh frame
+        // before the independent confirmation event, as the UI loop does.
+        wait(f, "fresh rendered Master review", |f| {
+            f.fresh()
+                && f.state.as_ref().is_some_and(|s| {
+                    s.review.is_some()
+                        && s.snapshot_age_ms.is_some_and(|age| {
+                            u128::from(age) + s.received.elapsed().as_millis() < 100
+                        })
+                })
+        });
+        f.synchronize_review();
+        f.mark_presented();
+        tap(f, "Enter");
+        wait(f, "Master applied", |f| {
+            f.fresh()
+                && f.exact_draft.is_none()
+                && f.state.as_ref().unwrap().review.is_none()
+                && f.state
+                    .as_ref()
+                    .unwrap()
+                    .snapshot
+                    .as_ref()
+                    .unwrap()
+                    .master_gain
+                    .as_ref()
+                    .is_some_and(|g| g.current_nanogain == g.target_nanogain)
+        });
+        render(f);
+        let scene = f.scene();
+        assert!(scene.in_bounds());
+        assert!(scene.primitives.iter().any(|p| matches!(p, shr_desk::render::Primitive::Text { value, .. } if value.contains("Applied"))));
+    }
+    exact(&mut f, "-12.0");
+    let initial = f
+        .state
+        .as_ref()
+        .unwrap()
+        .snapshot
+        .as_ref()
+        .unwrap()
+        .master_gain
+        .clone()
+        .unwrap();
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_millis(180) {
+        let generation = f.provider.generation();
+        f.inject_controller_flow(
+            &mut input,
+            "software-master",
+            &[0xe0, 0, 0],
+            generation,
+            start.elapsed().as_millis() as u64,
+        )
+        .unwrap();
+        f.pump();
+        thread::sleep(Duration::from_millis(20));
+    }
+    let generation = f.provider.generation();
+    f.inject_controller_flow(
+        &mut input,
+        "software-master",
+        &[0xe0, 0, 64],
+        generation,
+        180,
+    )
+    .unwrap();
+    wait(&mut f, "motion observed", |f| {
+        f.fresh()
+            && f.state
+                .as_ref()
+                .unwrap()
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .master_gain
+                .as_ref()
+                .unwrap()
+                .current_nanogain
+                < initial.current_nanogain
+    });
+    // A stopped strip cannot replay while the provider continues publishing.
+    thread::sleep(Duration::from_millis(60));
+    f.pump();
+    let revision = f
+        .state
+        .as_ref()
+        .unwrap()
+        .snapshot
+        .as_ref()
+        .unwrap()
+        .authority
+        .revision
+        .clone();
+    thread::sleep(Duration::from_millis(100));
+    f.pump();
+    assert_eq!(
+        f.state
+            .as_ref()
+            .unwrap()
+            .snapshot
+            .as_ref()
+            .unwrap()
+            .authority
+            .revision,
+        revision
+    );
+    // Center can cancel an already submitted step: keep its outcome UNKNOWN,
+    // explicitly reconnect read-only, then acquire new authority for later edits.
+    wait(&mut f, "center idle", |f| {
+        f.fresh() && !f.operation_pending()
+    });
+    reconnect(&mut f);
+    f.inject_controller(Action::Console(
+        shr_desk::controller_surface::Command::SelectTarget(Target::Master),
+    ))
+    .unwrap();
+    f.pump();
+    wait(&mut f, "new Master context", Frontend::fresh);
+    tap(&mut f, "G");
+    wait(&mut f, "new explicit FOH grant", |f| {
+        f.fresh() && !f.operation_pending() && f.state.as_ref().unwrap().writer_granted()
+    });
+    f.inject_controller(Action::ExactEdit(Parameter::Fader))
+        .unwrap();
+    f.pump();
+    f.inject_controller(Action::ExactText("-20.0".into()))
+        .unwrap();
+    f.pump();
+    f.inject_controller(Action::Cancel).unwrap();
+    f.pump();
+    wait(&mut f, "cancelled draft", |f| {
+        f.fresh()
+            && f.exact_draft.is_none()
+            && !f.operation_pending()
+            && f.state.as_ref().is_some_and(|s| {
+                s.generation == f.provider.generation()
+                    && s.snapshot_age_ms
+                        .is_some_and(|age| u128::from(age) + s.received.elapsed().as_millis() < 100)
+            })
+    });
+    // Lose the controller while its strip is active, including a last queued
+    // step. A submitted result may be unknown; fresh read-only recovery observes
+    // the retained gain and proves that motion is not replayed.
+    let loss = Instant::now();
+    while loss.elapsed() < Duration::from_millis(80) {
+        f.pump();
+        let generation = f.provider.generation();
+        let result = f.inject_controller_flow(
+            &mut input,
+            "software-master",
+            &[0xe0, 0, 0],
+            generation,
+            1000 + loss.elapsed().as_millis() as u64,
+        );
+        assert!(
+            result.is_ok(),
+            "{result:?}; loss_ms={} fresh={} granted={} menu={} pending={} scope={} review={} last={:?} status={} message={} raw_fresh={} age={:?} received_ms={}",
+            loss.elapsed().as_millis(),
+            f.fresh(),
+            f.state.as_ref().unwrap().writer_granted(),
+            f.controller_surface.open,
+            f.operation_pending(),
+            f.scope(),
+            f.state.as_ref().unwrap().review.is_some(),
+            f.state.as_ref().unwrap().last_operation,
+            f.state.as_ref().unwrap().status,
+            f.message,
+            f.state.as_ref().unwrap().fresh,
+            f.state.as_ref().unwrap().snapshot_age_ms,
+            f.state.as_ref().unwrap().received.elapsed().as_millis()
+        );
+        f.pump();
+        thread::sleep(Duration::from_millis(20));
+    }
+    let generation = f.provider.generation();
+    f.inject_controller_flow(
+        &mut input,
+        "software-master",
+        &[0xe0, 0, 0],
+        generation,
+        1100,
+    )
+    .unwrap();
+    f.pump();
+    f.controller_lost();
+    f.pump();
+    wait(&mut f, "controller loss completion", |f| {
+        !f.operation_pending()
+    });
+    reconnect(&mut f);
+    tap(&mut f, "G");
+    wait(&mut f, "explicit grant after controller loss", |f| {
+        f.fresh() && !f.operation_pending() && f.state.as_ref().unwrap().writer_granted()
+    });
+    exact(&mut f, "-12.0");
+    let after = f.state.as_ref().unwrap().snapshot.clone().unwrap();
+    assert_eq!(before.coefficients, after.coefficients);
+    assert_eq!(
+        before.clock.as_ref().map(|c| &c.state),
+        after.clock.as_ref().map(|c| &c.state)
+    );
+    assert_eq!(
+        after
+            .authority
+            .parameters
+            .iter()
+            .find(|p| p.target.parameter == "master_gain")
+            .unwrap()
+            .target_value,
+        json!(-12000)
+    );
+    f.controller_lost();
+    f.pump();
+    drop(f);
+    let mut f = Frontend::new(cfg);
+    wait(&mut f, "Master read-only reconnect", Frontend::fresh);
+    assert!(!f.state.as_ref().unwrap().writer_granted());
+    assert_eq!(
+        f.state
+            .as_ref()
+            .unwrap()
+            .snapshot
+            .as_ref()
+            .unwrap()
+            .master_gain,
+        after.master_gain
+    );
+    assert!(f.scene().in_bounds());
+    eprintln!(
+        "Master explicit review, speed/center, draft cancellation, controller loss and read-only reconnect passed"
+    );
+}

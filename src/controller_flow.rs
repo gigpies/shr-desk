@@ -381,6 +381,9 @@ pub struct MasterSpeed {
     generation: u64,
 }
 impl MasterSpeed {
+    pub(crate) fn is_active(&self) -> bool {
+        self.last_input.is_some()
+    }
     pub fn stop(&mut self) {
         self.speed = 0.;
         self.pending_db = 0.;

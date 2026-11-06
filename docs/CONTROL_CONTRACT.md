@@ -294,3 +294,21 @@ The existing palette/send/tempo/bypass/panic and independent return paths remain
 separate compatible actions. [Usage](FX.md#saved-fx-intent) owns controls;
 [GP-SHOW](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-show--audio-scenes-and-operator-recovery)
 owns task state and software evidence.
+
+## Dedicated Main Master gain
+
+Rendered snapshots may advertise `master_gain` version 1, stable target `main`,
+current/target nanogain. Strict decoding requires the matching authority target
+`{"parameter":"master_gain"}` exactly once and rejects unknown versions, extra
+fields, null capability and out-of-range coefficients. No input ID or monitor is
+permitted on this target. Absent capability is legacy read-only for Master.
+Set values are integer milli-dB, inclusive −60000..6000; FOH grant and all existing
+revision, epoch, session, source and input-generation fences remain mandatory.
+Master uses the existing core-intent path, never the saved FX bundle.
+
+Speed requests have one outstanding operation, an independent cancellation token
+and a 250 ms application deadline. They do not use ordinary retry replay. Center
+and loss stop future motion; an already submitted unknown outcome is reported as
+uncertain and cannot be promoted to success from equal values. Fresh correlated
+completion/readback is required before another motion step. Physical controller
+acquisition/feel remains outside this software contract.

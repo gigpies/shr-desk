@@ -165,9 +165,6 @@ impl Frontend {
                 if target != self.controller_target().ok_or("target unavailable")? {
                     return Err("controller target changed".into());
                 }
-                if target == crate::controller_flow::Target::Master {
-                    return Err("Master gain contract unavailable".into());
-                }
                 let t = self.target("fader")?;
                 let current = self
                     .state
@@ -181,15 +178,25 @@ impl Frontend {
                     })
                     .and_then(|p| p.target_value.as_i64())
                     .ok_or("gain unavailable")?;
-                let value = crate::controller_flow::GainPolicy::CHANNEL
-                    .steps(current as f64 / 1000., steps);
-                // Provider supports 0.1 dB steps. Never round an upward guard result up.
-                let next = if steps > 0 {
-                    (value * 10. + 1e-9).floor()
+                let policy = if target == crate::controller_flow::Target::Master {
+                    crate::controller_flow::GainPolicy::MASTER
                 } else {
-                    (value * 10. - 1e-9).ceil()
+                    crate::controller_flow::GainPolicy::CHANNEL
+                };
+                let value = policy.steps(current as f64 / 1000., steps);
+                // Inputs retain 0.1 dB steps; Master supports milli-dB motion.
+                // Never round an upward sensitivity guard result up.
+                let scale = if target == crate::controller_flow::Target::Master {
+                    1000.
+                } else {
+                    10.
+                };
+                let next = if steps > 0 {
+                    (value * scale + 1e-9).floor()
+                } else {
+                    (value * scale - 1e-9).ceil()
                 } as i64
-                    * 100;
+                    * (1000. / scale) as i64;
                 if next == current {
                     return Ok(());
                 }
@@ -469,6 +476,10 @@ impl Frontend {
         add("Health / analysis", Action::Page(Page::Analysis));
         add("Previous input", Action::Move(-1));
         add("Next input", Action::Move(1));
+        add(
+            "Select Master",
+            Action::Console(C::SelectTarget(crate::controller_flow::Target::Master)),
+        );
         add("Previous input bank", Action::Bank(-1));
         add("Next input bank", Action::Bank(1));
         add("Accept entered value", Action::Console(C::EntryAccept));
@@ -500,7 +511,14 @@ impl Frontend {
         add("Next parameter", Action::ProcessingField(1));
         add("Decrease parameter", Action::ProcessingAdjust(-1));
         add("Increase parameter", Action::ProcessingAdjust(1));
-        add("Exact channel level", Action::ExactEdit(Parameter::Fader));
+        add(
+            if self.selected_master {
+                "Exact Master gain"
+            } else {
+                "Exact channel level"
+            },
+            Action::ExactEdit(Parameter::Fader),
+        );
         add("Exact pan", Action::ExactEdit(Parameter::Pan));
         add("Mute", Action::Mute);
         add("Hold", Action::Hold);
@@ -781,6 +799,27 @@ impl Frontend {
         );
         Ok(())
     }
+    /// Attach an explicitly supplied software input profile. This opens no device
+    /// and grants no provider authority; role-bound endpoints must match.
+    pub fn attach_controller_profile(
+        &mut self,
+        profile: crate::controller_flow::Profile,
+    ) -> Result<crate::controller_flow::Input, String> {
+        profile.validate()?;
+        if self.role_required
+            && self.controller_identity.as_deref() != Some(profile.endpoint.as_str())
+        {
+            return Err("controller differs from role binding".into());
+        }
+        let input = crate::controller_flow::Input::new(profile.clone())?;
+        self.fence();
+        self.controller_identity = Some(profile.endpoint);
+        Ok(input)
+    }
+    pub fn controller_lost(&mut self) {
+        self.fence();
+        self.controller_identity = None;
+    }
     /// Complete-message software transport integration. Caller owns input lifetime and generation.
     pub fn inject_controller_flow(
         &mut self,
@@ -797,6 +836,7 @@ impl Frontend {
             || !self.device_ready
             || !self.provider.authorization.load(Ordering::Acquire)
         {
+            self.stop_master_motion();
             input.reset(self.provider.generation());
             return Err("controller context unavailable".into());
         }
@@ -866,7 +906,45 @@ impl Frontend {
                 _ => return Ok(()),
             },
             I::Pad { .. } => return Ok(()),
-            I::MasterSpeed(_) | I::Pan { .. } => {
+            I::MasterSpeed(position) => {
+                if position.abs() <= 0.08 {
+                    self.stop_master_motion();
+                    self.master_unknown = false;
+                    return Ok(());
+                }
+                if self
+                    .master_input
+                    .is_some_and(|t| t.elapsed() > Duration::from_millis(250))
+                {
+                    let pending = self.master_pending.is_some();
+                    self.stop_master_motion();
+                    self.master_unknown |= pending;
+                }
+                if self.master_unknown {
+                    return Err("Master outcome UNKNOWN; center and fresh readback required".into());
+                }
+                if !self.master_motion_ready() {
+                    self.stop_master_motion();
+                    return Err("Master motion requires fresh explicit FOH authority".into());
+                }
+                let now = std::time::Instant::now();
+                if self.master_input.is_none() {
+                    self.master_revision = self
+                        .state
+                        .as_ref()
+                        .and_then(|u| u.snapshot.as_ref())
+                        .map(|s| s.authority.revision.clone());
+                }
+                self.master_input = Some(now);
+                self.master_speed.input(
+                    position,
+                    self.master_clock.elapsed().as_millis() as u64,
+                    generation,
+                    input.profile.pitch_returns_to_center,
+                );
+                return Ok(());
+            }
+            I::Pan { .. } => {
                 return Err("Master provider gain/pan contract unavailable".into());
             }
         };
@@ -931,5 +1009,150 @@ impl Frontend {
             colours[14] = Colour::Yellow;
         }
         colours
+    }
+}
+
+impl Frontend {
+    pub(super) fn stop_master_motion(&mut self) {
+        self.master_speed.stop();
+        self.master_fraction = 0.;
+        self.master_input = None;
+        self.master_pending = None;
+        self.master_revision = None;
+        self.master_signal.fetch_add(1, Ordering::AcqRel);
+    }
+    fn master_motion_ready(&self) -> bool {
+        self.focused
+            && self.device_ready
+            && self.controller_identity.is_some()
+            && self.provider.authorization.load(Ordering::Acquire)
+            && self.scope == "foh"
+            && self.fresh()
+            && self.exact_draft.is_none()
+            && self.processing_draft.is_none()
+            && self.structural_draft.is_none()
+            && !self.controller_surface.open
+            && self.state.as_ref().is_some_and(|u| {
+                u.writer_granted()
+                    && u.review.is_none()
+                    && !u.last_operation.as_deref().is_some_and(|s| {
+                        s.contains("UNCERTAIN")
+                            || s.contains("UNKNOWN")
+                            || s.contains("READBACK UNAVAILABLE")
+                            || (self.master_pending.is_none() && s.starts_with("PENDING"))
+                    })
+                    && u.snapshot.as_ref().is_some_and(|s| s.master_gain.is_some())
+            })
+    }
+    pub(super) fn pump_master_motion(&mut self) {
+        let Some(input) = self.master_input else {
+            return;
+        };
+        if !self.master_motion_ready() || input.elapsed() > Duration::from_millis(250) {
+            let unresolved = self.master_pending.is_some();
+            self.stop_master_motion();
+            if unresolved {
+                self.master_unknown = true;
+                self.message = "UNKNOWN Master motion completion; stopped".into();
+            }
+            return;
+        }
+        if let Some((revision, sent)) = &self.master_pending {
+            if sent.elapsed() > Duration::from_millis(250) {
+                self.stop_master_motion();
+                self.master_unknown = true;
+                self.message = "UNKNOWN Master motion completion; stopped".into();
+                return;
+            }
+            if self.provider.pending_edits.load(Ordering::Acquire) != 0 {
+                return;
+            }
+            let u = self.state.as_ref().unwrap();
+            if u.last_operation
+                .as_deref()
+                .is_some_and(|s| s.starts_with("PENDING"))
+            {
+                return;
+            }
+            if u.last_operation.as_deref()
+                != Some(format!("set applied revision {revision}").as_str())
+                || u.snapshot
+                    .as_ref()
+                    .is_none_or(|s| &s.authority.revision != revision)
+            {
+                self.stop_master_motion();
+                self.master_unknown = true;
+                self.message = "Master motion stopped: uncorrelated or concurrent result".into();
+                return;
+            }
+            self.master_revision = Some(revision.clone());
+            self.master_pending = None;
+        }
+        if self.provider.pending_edits.load(Ordering::Acquire) != 0 {
+            self.stop_master_motion();
+            return;
+        }
+        let s = self.state.as_ref().unwrap().snapshot.as_ref().unwrap();
+        if self.master_revision.as_ref() != Some(&s.authority.revision) {
+            self.stop_master_motion();
+            self.message = "Master motion stopped: concurrent revision".into();
+            return;
+        }
+        let gain = s.master_gain.as_ref().unwrap();
+        if gain.current_nanogain != gain.target_nanogain {
+            return;
+        }
+        let Some(current) = s
+            .authority
+            .parameters
+            .iter()
+            .find(|p| p.target.parameter == "master_gain")
+            .and_then(|p| p.target_value.as_i64())
+        else {
+            self.stop_master_motion();
+            return;
+        };
+        let next = self.master_speed.tick(
+            current as f64 / 1000.,
+            self.master_clock.elapsed().as_millis() as u64,
+            self.provider.generation(),
+            true,
+        );
+        if !self.master_speed.is_active() {
+            self.stop_master_motion();
+            return;
+        }
+        let next = next + self.master_fraction;
+        let value = if next >= current as f64 / 1000. {
+            (next * 1000.).floor()
+        } else {
+            (next * 1000.).ceil()
+        } as i64;
+        self.master_fraction = next - value as f64 / 1000.;
+        if value == current {
+            return;
+        }
+        let Some(revision) = s
+            .authority
+            .revision
+            .parse::<u64>()
+            .ok()
+            .and_then(|r| r.checked_add(1))
+        else {
+            self.stop_master_motion();
+            return;
+        };
+        let guard = super::MotionGuard {
+            signal: self.master_signal.clone(),
+            token: self.master_signal.load(Ordering::Acquire),
+            deadline: input + Duration::from_millis(250),
+        };
+        match self.send(Operation::MasterMotion { value, guard }) {
+            Ok(()) => self.master_pending = Some((revision.to_string(), std::time::Instant::now())),
+            Err(e) => {
+                self.stop_master_motion();
+                self.message = e;
+            }
+        }
     }
 }

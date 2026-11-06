@@ -62,8 +62,8 @@
       "bytes": 505
     },
     "read-committed-new.json": {
-      "sha256": "a07d2e09f79bba869a332f26d696fabcd55689d3be04056b12b0b2bc26e06cc0",
-      "bytes": 102664
+      "sha256": "a9d80676430382f550f00bb0de0e587850a8e48a334cc14ffe945a2319869ef9",
+      "bytes": 103036
     },
     "read-duplicate.json": {
       "sha256": "43c904a3908f9360b920b900ce5113a94d4e5cb2348ea04271f01e75a98e9f51",
@@ -74,8 +74,8 @@
       "bytes": 508
     },
     "read-pending-old.json": {
-      "sha256": "b9a6796946baabaff9b98de62c8b99340a46fec0078aea8d020705d56b70a506",
-      "bytes": 102639
+      "sha256": "3b7026546bf4d87f6999ef0ffa17e313232d2dbd938c48563d0e99b321d77bdb",
+      "bytes": 103011
     },
     "read-request-16.json": {
       "sha256": "595ff53b39508bc69cd4f4ede8dc89f68c6692ca80433d21ea84e9b2e12c301e",
@@ -90,16 +90,16 @@
       "bytes": 334
     },
     "read-snapshot-16.json": {
-      "sha256": "8d624f119eb635cc10ef7ce4392af57262159778b3fd46f137db0df2e8ffbdc4",
-      "bytes": 53854
+      "sha256": "1b00f4e9da50c9c6bc6fa9218ecdf42a05ee233cb165e994f247d3e0b513f07a",
+      "bytes": 54226
     },
     "read-snapshot-32.json": {
-      "sha256": "e77492eacf50fbf5d721c5b6085c28f0f7e06b48365e5334e85189f2e3f1622b",
-      "bytes": 102639
+      "sha256": "19658776ed9c92ccc5d8fac7bd883e62c5c2d27cfacb21431811b95fb1db3620",
+      "bytes": 103011
     },
     "read-snapshot-48.json": {
-      "sha256": "3324d7008fef71c2d5e609e9e9dd7a9f04a49a0d62af7d24a957016d084c94bf",
-      "bytes": 151423
+      "sha256": "7c9f382bc2feac1865568c5adb8cdc97595a45c0a342bb6208cb34c5668f5288",
+      "bytes": 151795
     },
     "scope-foh-maintained.json": {
       "sha256": "ae93c8d246f4b0c387624ad1a50fbdb78316cc284eb41987478fb3caa27fd18a",
@@ -274,5 +274,17 @@
       "bytes": 385
     }
   },
-  "producer_manifest_sha256": "9b04a015e27fd8bbe78956ad8f7a9a5ad4ba498a7c56602cfa9dcb9d2c970026"
+  "producer_manifest_sha256": "8c7bbb6257fca387f02bd39c7667cecf7a6b527cf47d40fb82e8e9e50d969c32",
+  "master_refresh": {
+    "date": "2026-11-06",
+    "producer_base_revision": "c9f1d8d9465c556afd1594b066cad8f7bc2507b2",
+    "producer_state": "Uncommitted GP-PANEL Master implementation; existing real-producer generators; owning GP-PANEL November 6 record",
+    "files": [
+      "read-committed-new.json",
+      "read-pending-old.json",
+      "read-snapshot-16.json",
+      "read-snapshot-32.json",
+      "read-snapshot-48.json"
+    ]
+  }
 }

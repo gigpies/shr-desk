@@ -50,6 +50,13 @@ honestly; presentation does not fall back to fixtures.
 
 ## Actions and recovery
 
+Use the controller menu's **Select Master** and **Exact Master gain** to edit the
+coherent Main level. The separate [Master controller workflow](CONTROLLER.md#master-selection-and-editing)
+requires advertised capability and an explicit FOH grant; gain edits never rearm.
+Applied gain, ramp target, draft and operation outcome remain separate readouts.
+Master pan/mute and physical pitch-strip feel remain unqualified/unavailable.
+
+
 F11 opens the [Master EQ setup editor](MASTER_EQ.md) in a dynamic
 `pa_configuration` session: eight parametric bands and a 31-band graphic EQ,
 linked or separate L/R edits, actual main-bus mapping and owner field preservation.

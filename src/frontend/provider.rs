@@ -635,7 +635,8 @@ fn worker(
                                 Operation::ReviewStructure { .. } => "structural review",
                                 Operation::Grant => "writer grant",
                                 Operation::ReleaseWriter => "writer release",
-                                Operation::Set { .. } => "parameter edit",
+                                Operation::Set { .. } | Operation::MasterMotion { .. } =>
+                                    "parameter edit",
                                 Operation::ReviewSet { .. } => "protected edit review",
                                 Operation::Preview(_) => "engine release preview",
                                 Operation::Mode { .. } => "mode review",
@@ -876,6 +877,7 @@ fn worker(
                         Operation::Grant => crate::scopes::value(&config.scope)
                             .and_then(|scope| o.mutate_inner("grant", json!({"scope":scope}))),
                         Operation::ReleaseWriter => o.mutate_inner("release", json!({})),
+                        Operation::MasterMotion { value, guard } => o.master_motion(value, guard),
                         Operation::Set { target, value } => o.mutate_inner(
                             "set",
                             json!({"targets":[{"target":target,"value":value}]}),

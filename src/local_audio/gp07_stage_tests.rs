@@ -105,6 +105,7 @@ fn paired(change_before_stage: bool) {
         draft: None,
         scope: "foh".into(),
         guard: None,
+        motion_guard: None,
         brain_signal: None,
         brain_probes: BrainProbes::default(),
         held_baseline: None,

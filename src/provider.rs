@@ -22,6 +22,7 @@ fn required_option<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
 #[serde(deny_unknown_fields)]
 pub struct Target {
     pub parameter: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub input: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub monitor: Option<String>,
@@ -280,6 +281,13 @@ pub(crate) fn target_scope(t: &Target) -> String {
         .map_or_else(|| "foh".into(), |m| m.replace("monitor-", "monitor"))
 }
 pub(crate) fn target_version(t: &Target, version: u8) -> Result<(), String> {
+    if t.parameter == "master_gain" {
+        return if t.input.is_empty() && t.monitor.is_none() {
+            Ok(())
+        } else {
+            Err("Master identity".into())
+        };
+    }
     let n = t
         .input
         .strip_prefix("input-")
@@ -311,6 +319,8 @@ pub(crate) fn value(t: &Target, v: &Value) -> Result<(), String> {
     } else if let Some(n) = v.as_i64()
         && if t.parameter == "pan" {
             (-100..=100).contains(&n)
+        } else if t.parameter == "master_gain" {
+            (-60000..=6000).contains(&n)
         } else {
             (-60000..=12000).contains(&n) && n % 100 == 0
         }
@@ -356,6 +366,7 @@ impl Snapshot {
         }
         let parameter_count = input_count
             .checked_mul(3 + monitor_count)
+            .and_then(|n| n.checked_add(1))
             .ok_or("parameter capacity")?;
         if !uuid(&self.show_id) {
             return Err("invalid show".into());
@@ -458,6 +469,13 @@ impl Snapshot {
     }
     pub(crate) fn validate_target(&self, t: &Target) -> Result<(), String> {
         target_version(t, 2)?;
+        if t.parameter == "master_gain" {
+            return if self.parameters.iter().any(|p| p.target == *t) {
+                Ok(())
+            } else {
+                Err("Master capability absent".into())
+            };
+        }
         if !self.inputs.contains(&t.input)
             || t.monitor
                 .as_ref()
@@ -515,7 +533,9 @@ pub(crate) fn validate_snapshot_shape(v: &Value) -> Result<(), String> {
                 let t = &p["target"];
                 keys(
                     t,
-                    if t["parameter"] == "send" {
+                    if t["parameter"] == "master_gain" {
+                        &["parameter"]
+                    } else if t["parameter"] == "send" {
                         &["parameter", "input", "monitor"]
                     } else {
                         &["parameter", "input"]
