@@ -16,8 +16,18 @@ use std::{
 };
 fn wait(f: &mut Frontend, label: &str, ready: impl Fn(&Frontend) -> bool) {
     let end = Instant::now() + Duration::from_secs(5);
+    let mut last = String::new();
     loop {
         f.pump();
+        let status = f
+            .state
+            .as_ref()
+            .map(|u| u.status.clone())
+            .unwrap_or_default();
+        if status != last {
+            eprintln!("{label}: {status}");
+            last = status;
+        }
         if ready(f) {
             return;
         }
@@ -226,7 +236,12 @@ fn actual_four_aux_frontend_review_and_readback() {
     confirm(&mut f);
     act(&mut f, A::Panic);
     confirm(&mut f);
+    exercise_returns(&mut f);
+    f.fx_aux_ui.bus = 3;
     let retained = snapshot(&f);
+    if let Ok(path) = std::env::var("GP_FX_DESK_FIXTURE") {
+        fs::write(path, serde_json::to_vec_pretty(&retained).unwrap()).unwrap();
+    }
     act(&mut f, A::Algorithm(1));
     wait(&mut f, "cancel review", |f| {
         f.state.as_ref().is_some_and(|s| s.review.is_some())
@@ -261,4 +276,241 @@ fn actual_four_aux_frontend_review_and_readback() {
         snapshot(&reconnect)["buses"][3]["configuration_json"],
         retained["buses"][3]["configuration_json"]
     );
+}
+
+/// Used by GigPies' bounded authenticated loopback owner/sample harness.
+#[test]
+#[ignore = "GP_FX_DESK_CONFIG explicitly supplied by the local GigPies test harness"]
+fn actual_provider_return_controls() {
+    let c: Value =
+        serde_json::from_slice(&fs::read(std::env::var("GP_FX_DESK_CONFIG").unwrap()).unwrap())
+            .unwrap();
+    let cfg = Config {
+        wire_version: 2,
+        remote: c
+            .get("remote")
+            .map(|v| serde_json::from_value(v.clone()).unwrap()),
+        endpoint: c["endpoint"]
+            .as_str()
+            .map(PathBuf::from)
+            .unwrap_or_default(),
+        show: c["show"].as_str().unwrap().into(),
+        epoch: 9,
+        writer: "return-desk".into(),
+        scope: "fx_configuration".into(),
+    };
+    let mut f = Frontend::new(cfg.clone());
+    wait(&mut f, "remote attach", Frontend::fresh);
+    act(&mut f, A::Open);
+    wait(&mut f, "routing", |f| {
+        f.state.as_ref().is_some_and(|u| {
+            u.fx_aux
+                .snapshot
+                .as_ref()
+                .is_some_and(|s| s["return_routing_version"] == 1)
+        })
+    });
+    tap(&mut f, "G");
+    wait(&mut f, "grant", |f| {
+        f.state.as_ref().unwrap().writer_granted()
+    });
+    let receipt = f.state.as_ref().unwrap().fx_aux.receipt;
+    act(&mut f, A::Probe);
+    wait(&mut f, "probe", |f| {
+        f.state.as_ref().unwrap().fx_aux.receipt != receipt
+    });
+    if c["prepare_sends"] == true {
+        for bus in 0..4 {
+            f.fx_aux_ui.bus = bus;
+            f.fx_aux_ui.field = 0;
+            act(&mut f, A::Adjust(20));
+            confirm(&mut f);
+        }
+    }
+    exercise_returns(&mut f);
+    let before = snapshot(&f);
+    if let Ok(path) = std::env::var("GP_FX_DESK_FIXTURE") {
+        fs::write(path, serde_json::to_vec_pretty(&before).unwrap()).unwrap();
+    }
+    drop(f);
+    let mut f = Frontend::new(cfg);
+    wait(&mut f, "read-only reconnect", Frontend::fresh);
+    assert!(!f.state.as_ref().unwrap().writer_granted());
+    act(&mut f, A::Open);
+    wait(&mut f, "reconnected routing", |f| {
+        f.state.as_ref().unwrap().fx_aux.snapshot.is_some()
+    });
+    for bus in 0..4 {
+        assert_eq!(
+            snapshot(&f)["buses"][bus]["configuration_json"],
+            before["buses"][bus]["configuration_json"]
+        );
+    }
+}
+
+fn exercise_returns(f: &mut Frontend) {
+    for bus in 0..4 {
+        f.fx_aux_ui.bus = bus;
+        let before = snapshot(f);
+        let config = shr_desk::fx_aux::configuration(
+            before["buses"][bus]["configuration_json"].as_str().unwrap(),
+        )
+        .unwrap();
+        let owner: Value =
+            serde_json::from_str(before["buses"][bus]["owner_json"].as_str().unwrap()).unwrap();
+        f.fx_aux_ui.field = 9;
+        tap(f, "-");
+        confirm(f);
+        tap(f, "Down");
+        tap(f, "+");
+        confirm(f);
+        tap(f, "Down");
+        tap(f, "+");
+        confirm(f);
+        tap(f, "+");
+        confirm(f);
+        let after = snapshot(f);
+        let current = shr_desk::fx_aux::configuration(
+            after["buses"][bus]["configuration_json"].as_str().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            current["returns"],
+            json!({"main":0.95,"monitors":[0.05,0.1]})
+        );
+        assert_eq!(current["settings"], config["settings"]);
+        assert_eq!(current["sends"], config["sends"]);
+        let applied: Value =
+            serde_json::from_str(after["buses"][bus]["owner_json"].as_str().unwrap()).unwrap();
+        assert_eq!(
+            applied["accepted_request"], owner["accepted_request"],
+            "route-only edit must not replace DSP"
+        );
+        for other in 0..4 {
+            if other != bus {
+                assert_eq!(
+                    before["buses"][other]["configuration_json"],
+                    after["buses"][other]["configuration_json"]
+                );
+            }
+        }
+        assert!(f.scene().in_bounds());
+    }
+}
+
+#[test]
+#[ignore = "GP_FX_DESK_CONFIG from bounded disarmed actual GigPies local or TLS harness"]
+fn actual_provider_saved_fx_controls() {
+    let c: Value =
+        serde_json::from_slice(&fs::read(std::env::var("GP_FX_DESK_CONFIG").unwrap()).unwrap())
+            .unwrap();
+    let cfg = Config {
+        wire_version: 2,
+        remote: c
+            .get("remote")
+            .map(|v| serde_json::from_value(v.clone()).unwrap()),
+        endpoint: c["endpoint"]
+            .as_str()
+            .map(PathBuf::from)
+            .unwrap_or_default(),
+        show: c["show"].as_str().unwrap().into(),
+        epoch: 9,
+        writer: "saved-fx-desk".into(),
+        scope: "fx_configuration".into(),
+    };
+    let mut f = Frontend::new(cfg.clone());
+    f.fx_aux_ui.directory = Some(PathBuf::from(c["saved_directory"].as_str().unwrap()));
+    wait(&mut f, "attach", Frontend::fresh);
+    act(&mut f, A::Open);
+    wait(&mut f, "FX", |f| {
+        f.state.as_ref().unwrap().fx_aux.snapshot.is_some()
+    });
+    tap(&mut f, "K");
+    wait(&mut f, "saved capability", |f| {
+        snapshot(f)["restore_version"] == 1
+    });
+    assert!(!f.state.as_ref().unwrap().writer_granted());
+    tap(&mut f, "S");
+    wait(&mut f, "saved", |f| {
+        f.state.as_ref().unwrap().fx_aux.saved.is_some()
+    });
+    let saved = f.state.as_ref().unwrap().fx_aux.saved.clone().unwrap();
+    tap(&mut f, "G");
+    wait(&mut f, "grant", |f| {
+        f.state.as_ref().unwrap().writer_granted()
+    });
+    for bus in 0..4 {
+        f.fx_aux_ui.bus = bus;
+        f.fx_aux_ui.field = 1;
+        act(&mut f, A::Adjust(1));
+        confirm(&mut f);
+        f.fx_aux_ui.field = 10;
+        act(&mut f, A::Adjust(1));
+        confirm(&mut f);
+    }
+    let changed = snapshot(&f);
+    tap(&mut f, "O");
+    wait(&mut f, "loaded", |f| {
+        f.state
+            .as_ref()
+            .unwrap()
+            .last_operation
+            .as_ref()
+            .is_some_and(|s| s.contains("Loaded saved intent"))
+    });
+    tap(&mut f, "V");
+    wait(&mut f, "preview", |f| {
+        f.state.as_ref().unwrap().review.is_some()
+    });
+    f.synchronize_review();
+    assert!(f.review_pages() > 1);
+    for i in 0..f.review_pages() {
+        if i > 0 {
+            tap(&mut f, "PageDown");
+        }
+        assert!(f.scene().in_bounds());
+        f.mark_presented();
+    }
+    tap(&mut f, "Esc");
+    wait(&mut f, "cancel", |f| {
+        f.state.as_ref().is_some_and(|u| u.review.is_none())
+    });
+    assert_eq!(snapshot(&f)["buses"], changed["buses"]);
+    tap(&mut f, "V");
+    confirm(&mut f);
+    let applied = snapshot(&f);
+    for bus in 0..4 {
+        assert_eq!(
+            shr_desk::fx_aux::configuration(
+                applied["buses"][bus]["configuration_json"]
+                    .as_str()
+                    .unwrap()
+            )
+            .unwrap(),
+            shr_desk::fx_aux::configuration(saved["configurations"][bus].as_str().unwrap())
+                .unwrap()
+        );
+    }
+    assert_eq!(
+        f.state
+            .as_ref()
+            .unwrap()
+            .snapshot
+            .as_ref()
+            .unwrap()
+            .clock
+            .as_ref()
+            .unwrap()
+            .state,
+        shr_desk::topology::ClockState::Disarmed
+    );
+    drop(f);
+    let mut f = Frontend::new(cfg);
+    wait(&mut f, "read-only reconnect", Frontend::fresh);
+    assert!(!f.state.as_ref().unwrap().writer_granted());
+    act(&mut f, A::Open);
+    wait(&mut f, "reconnected FX", |f| {
+        f.state.as_ref().unwrap().fx_aux.snapshot.is_some()
+    });
+    assert_eq!(snapshot(&f)["buses"], applied["buses"]);
 }

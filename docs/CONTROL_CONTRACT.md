@@ -246,3 +246,51 @@ parser admits those three module metadata subtrees only for GP05 status (includi
 a remote Reply payload); authority, configuration and REC fields remain strict
 integer JSON. Other contracts retain their original parser. Duplicate keys, size
 and depth bounds remain enforced. This changes no provider envelope or FX ABI.
+
+
+## Four-aux independent return routing
+
+GP-FX-aux:1 reads explicitly request `{"return_routing":true}`. Desk admits only
+return-routing version 1, ordered unique `monitor-1`… identities matching the
+paired raw topology, exactly four bus configurations, and finite linear 0..1
+Main/monitor levels with exact dimensions. Opaque configuration JSON retains
+strict duplicate/unknown-member and size checks. Empty-body reads preserve the
+legacy palette/send contract; the explicit legacy action disables routing controls.
+Malformed data, authentication, transport and timeout failures never trigger
+legacy fallback or a mutation retry.
+
+The existing scoped writer, revision, lease, epoch and reviewed-input generation
+fences remain authoritative. Complete configurations preserve every untouched
+send, setting, tempo and return. Remote edits also pin the actual owner binding.
+Preparation and acceptance do not claim settlement: a correlated accepted reply
+must precede a fresh paired raw/aux read with the same source, map, library, monitor
+inventory and owner, the expected host generation, exact applied configuration,
+settled current owner settings, no pending transaction and an advancing authority
+revision. Route-only changes may leave DSP request counters unchanged. Lost
+completion stays UNKNOWN even if target values later match; only an explicit
+fresh probe reconciles current state, followed by a new reviewed action.
+
+Reconnect is read-only and cannot replay a draft, grant authority or rearm.
+Source recovery retains routing while disarmed; a new Brain owner resets Main to
+unity and monitors to zero. The UI distinguishes the shared provider wet-processing
+gain from independent host destinations and never infers silence from bypass or
+panic settlement. [FX usage](FX.md) owns controls; the shared
+[GP-FX card](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-fx--writable-owner-effects-in-the-console)
+owns acceptance, saved-show and physical follow-up.
+
+## Saved four-aux intent
+
+Desk's `fx_saved` consumer uses the producer-owned
+[saved FX contract](../../gigpies/docs/reference/REMOTE_FX_CONTROL.md#saved-four-aux-intent-and-reviewed-restore).
+Save runs on the provider worker after a fresh settled read; loading performs only
+bounded file I/O. Neither loading nor preview acquires authority. The complete
+bundle is reviewed through the existing semantic actions, input-generation guards
+and presented-page confirmation. Confirm sends one FX-scoped request. Runtime
+bindings are freshly derived from the actual producer, never restored from disk.
+The consumer requires exact compatibility, correlated acceptance and exact settled
+readback across all four buses. Lost completion remains UNKNOWN without retries;
+explicit reconciliation never retroactively marks that operation successful.
+The existing palette/send/tempo/bypass/panic and independent return paths remain
+separate compatible actions. [Usage](FX.md#saved-fx-intent) owns controls;
+[GP-SHOW](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-show--audio-scenes-and-operator-recovery)
+owns task state and software evidence.

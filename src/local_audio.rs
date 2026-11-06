@@ -332,6 +332,9 @@ impl Operator {
                 let tracks = self.recorder.observation.as_ref().map(|o|o.mapping.join(", ")).unwrap_or_default();
                 return format!("{} {} / revision {} / scope {} / show {} / epoch {}\nRaw tracks in stem order: {}\n{}\nAdmission is not recording success. Inspect preparing, recording, finalizing and finalized outcome. Durable frames remain UNKNOWN.",d.kind,d.body,d.revision,self.scope,self.session.snapshot_request().context.show_id,self.session.snapshot_request().context.epoch,tracks,if d.kind=="record_start" {"Create a NEW take under the provider private takes directory. Storage readiness is asynchronous."} else {"Quiesce this exact take, drain accepted frames and finalize. Incomplete/error outcomes preserve files for owner recovery."});
             }
+            if d.kind=="fx_saved_preview" {
+                return format!("INCOMPATIBLE SAVED FX — PREVIEW ONLY, RESTORE UNAVAILABLE\n{}\nCurrent show/library: {} / {}\nCurrent input bindings: {}\nCurrent logical monitors: {}\nComplete saved intent:\n{}\nCancel to leave this preview; no mutation or remapping is allowed.",d.body["reason"],d.body["current_show"],d.body["current_library"],d.body["current_inputs"],d.body["current_monitors"],serde_json::to_string_pretty(&d.body["saved"]).unwrap_or_default());
+            }
             if d.kind=="fx_aux_configure" {
                 return crate::fx_aux::review_lines(&d.body,self.session.fx_aux.snapshot.as_ref());
             }
@@ -2393,6 +2396,9 @@ impl Operator {
             .draft
             .take()
             .ok_or("no confirmation draft; held/repeated confirm refused")?;
+        if d.kind == "fx_saved_preview" {
+            return Err("Incompatible saved FX: preview only; restore unavailable".into());
+        }
         if !self.session.fresh(self.now()) {
             self.refresh()?;
         }
@@ -2761,3 +2767,6 @@ mod gp18_pair_tests;
 
 #[cfg(test)]
 mod required_final_readback_tests;
+
+#[cfg(test)]
+mod fx_aux_tests;

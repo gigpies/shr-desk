@@ -32,6 +32,8 @@ fn stale_and_unsettled_edits_refuse_but_explicit_panic_remains_reachable() {
         fx_aux::configuration(v["buses"][0]["configuration_json"].as_str().unwrap()).unwrap();
     let body = fx_aux::mutation(&v, 0, Some(config.clone())).unwrap();
     let mut state = State {
+        saved: None,
+        loaded_slot: None,
         snapshot: Some(v.clone()),
         receipt: Some(100),
         unknown: false,
@@ -72,6 +74,8 @@ fn remote_owner_binding_fences_reconnects_even_when_generations_match() {
         fx_aux::configuration(v["buses"][0]["configuration_json"].as_str().unwrap()).unwrap();
     let body = fx_aux::mutation(&v, 0, Some(config)).unwrap();
     let mut state = State {
+        saved: None,
+        loaded_slot: None,
         snapshot: Some(v.clone()),
         receipt: Some(100),
         unknown: false,
@@ -99,5 +103,74 @@ fn actual_authenticated_brain_fixture_exposes_four_distinct_effects() {
         assert_eq!(c["sends"][bus], 1.);
         let body = fx_aux::mutation(&v, bus, Some(c)).unwrap();
         assert_eq!(body["owner_binding"], v["owner_binding"]);
+    }
+}
+
+#[test]
+fn routing_extension_requires_exact_versions_identities_dimensions_and_finite_levels() {
+    for count in [0, 1, 3, 5, 17] {
+        let mut v = fixture();
+        v["return_routing_version"] = json!(1);
+        v["monitors"] = json!(
+            (1..=count)
+                .map(|i| format!("monitor-{i}"))
+                .collect::<Vec<_>>()
+        );
+        for b in v["buses"].as_array_mut().unwrap() {
+            let mut c = fx_aux::configuration(b["configuration_json"].as_str().unwrap()).unwrap();
+            c["returns"] = json!({"main":1.,"monitors":vec![0.;count]});
+            b["configuration_json"] = json!(c.to_string());
+        }
+        assert!(fx_aux::snapshot(v.clone()).is_ok());
+        for key in ["return_routing_version", "monitors"] {
+            let mut bad = v.clone();
+            bad.as_object_mut().unwrap().remove(key);
+            assert!(fx_aux::snapshot(bad).is_err());
+        }
+        let mut bad = v.clone();
+        bad["return_routing_version"] = json!(2);
+        assert!(fx_aux::snapshot(bad).is_err());
+        if count > 0 {
+            let mut bad = v.clone();
+            bad["monitors"][0] = json!("monitor-2");
+            assert!(fx_aux::snapshot(bad).is_err());
+        }
+        for returns in [
+            json!({"main":-0.1,"monitors":vec![0.;count]}),
+            json!({"main":1.01,"monitors":vec![0.;count]}),
+            json!({"main":null,"monitors":vec![0.;count]}),
+            json!({"main":1.,"monitors":vec![1.01;count.max(1)]}),
+            json!({"main":1.,"monitors":vec![Value::Null;count.max(1)]}),
+            json!({"main":1.,"monitors":vec![0.;count+1]}),
+            json!({"main":"NaN","monitors":vec![0.;count]}),
+            json!({"main":1.,"monitors":vec![0.;count],"extra":0}),
+        ] {
+            let mut bad = v.clone();
+            let mut c =
+                fx_aux::configuration(bad["buses"][0]["configuration_json"].as_str().unwrap())
+                    .unwrap();
+            c["returns"] = returns;
+            bad["buses"][0]["configuration_json"] = json!(c.to_string());
+            assert!(fx_aux::snapshot(bad).is_err());
+        }
+    }
+    assert!(fx_aux::configuration(r#"{"settings":{},"sends":[0],"tempo":null,"returns":{"main":0,"main":1,"monitors":[]}}"#).is_err());
+}
+
+#[test]
+fn actual_return_producer_fixture_decodes_all_applied_routes() {
+    for bytes in [
+        include_bytes!("fixtures/gp-fx-aux/v1/return-owner.json").as_slice(),
+        include_bytes!("fixtures/gp-fx-aux/v1/return-brain-owner.json").as_slice(),
+    ] {
+        let v: Value = serde_json::from_slice(bytes).unwrap();
+        let v = fx_aux::snapshot(v).unwrap();
+        assert_eq!(v["return_routing_version"], 1);
+        assert_eq!(v["monitors"], json!(["monitor-1", "monitor-2"]));
+        for b in v["buses"].as_array().unwrap() {
+            let c = fx_aux::configuration(b["configuration_json"].as_str().unwrap()).unwrap();
+            assert_eq!(c["returns"], json!({"main":0.95,"monitors":[0.05,0.1]}));
+            assert_eq!(b["generation"], b["applied_generation"]);
+        }
     }
 }

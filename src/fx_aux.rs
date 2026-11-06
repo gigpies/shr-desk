@@ -3,6 +3,8 @@ use serde_json::{Value, json};
 pub const CONTRACT: &str = "GP-FX-aux";
 #[derive(Clone, Debug, Default)]
 pub struct State {
+    pub saved: Option<Value>,
+    pub loaded_slot: Option<usize>,
     pub snapshot: Option<Value>,
     pub receipt: Option<u64>,
     pub unknown: bool,
@@ -13,6 +15,16 @@ impl State {
     }
     pub fn validate(&self, body: &Value, now: u64) -> Result<(), String> {
         validate_body(body)?;
+        if let Some(r) = body.get("restore") {
+            let s = self.snapshot.as_ref().ok_or("FX unavailable")?;
+            crate::fx_saved::compatible(&r["saved"], s)?;
+            // A new bundle review needs four settled authoritative owners, even
+            // after explicit reconciliation of an earlier unknown outcome.
+            crate::fx_saved::capture(s)?;
+            for edit in crate::fx_saved::edits(body)? {
+                self.validate(&edit, now)?;
+            }
+        }
         if !self.fresh(now) {
             return Err("FX aux fresh probe required".into());
         }
@@ -27,10 +39,42 @@ impl State {
             || b["generation"] != body["expected_generation"]
             || (body["panic"] != true && b["generation"] != b["applied_generation"])
         {
-            return Err("FX aux stale or transitioning".into());
+            return Err(format!(
+                "FX aux stale or transitioning: available={} pending={} library_match={} map_match={} owner_match={} generation={}/{} applied={}",
+                s["available"],
+                s["pending"],
+                s["library_sha256"] == body["library_sha256"],
+                s["map_revision"] == body["map_revision"],
+                s["owner_binding"] == body["owner_binding"],
+                b["generation"],
+                body["expected_generation"],
+                b["applied_generation"]
+            ));
+        }
+        if let Some(text) = body["configuration_json"].as_str() {
+            let c = configuration(text)?;
+            match s["monitors"].as_array() {
+                Some(monitors) => validate_returns(&c["returns"], Some(monitors.len()))?,
+                None if c.get("returns").is_some() => return Err("FX routing unavailable".into()),
+                None => (),
+            }
         }
         Ok(())
     }
+}
+pub fn validate_returns(r: &Value, count: Option<usize>) -> Result<(), String> {
+    crate::provider::keys(r, &["main", "monitors"])?;
+    let monitors = r["monitors"].as_array().ok_or("FX return monitors")?;
+    if monitors.len() > 4096
+        || count.is_some_and(|n| n != monitors.len())
+        || std::iter::once(&r["main"]).chain(monitors).any(|v| {
+            v.as_f64()
+                .is_none_or(|n| !n.is_finite() || !(0.0..=1.0).contains(&n))
+        })
+    {
+        return Err("FX return shape/range".into());
+    }
+    Ok(())
 }
 pub fn validate_body(b: &Value) -> Result<(), String> {
     let mut keys = vec![
@@ -44,6 +88,10 @@ pub fn validate_body(b: &Value) -> Result<(), String> {
     if b.get("owner_binding").is_some() {
         keys.push("owner_binding");
         check_binding(&b["owner_binding"])?;
+    }
+    if b.get("restore").is_some() {
+        keys.push("restore");
+        crate::fx_saved::edits(b)?;
     }
     crate::provider::keys(b, &keys)?;
     if b["bus"].as_u64().is_none_or(|v| v >= 4)
@@ -68,7 +116,12 @@ pub fn validate_body(b: &Value) -> Result<(), String> {
 }
 pub fn configuration(text: &str) -> Result<Value, String> {
     let v = crate::master_eq::parse_owner_bounded(text, 32768)?;
-    crate::provider::keys(&v, &["settings", "sends", "tempo"])?;
+    let mut keys = vec!["settings", "sends", "tempo"];
+    if let Some(r) = v.get("returns") {
+        keys.push("returns");
+        validate_returns(r, None)?;
+    }
+    crate::provider::keys(&v, &keys)?;
     if !v["tempo"].is_null() {
         crate::provider::keys(&v["tempo"], &["bpm", "denominator", "modifier"])?;
         let t = &v["tempo"];
@@ -152,6 +205,30 @@ pub fn snapshot(v: Value) -> Result<Value, String> {
         keys.push("owner_binding");
         check_binding(&v["owner_binding"])?;
     }
+    if v.get("return_routing_version").is_some() || v.get("monitors").is_some() {
+        keys.extend(["return_routing_version", "monitors"]);
+        if v["available"] != true || v["return_routing_version"] != 1 {
+            return Err("FX return routing version".into());
+        }
+        let monitors = v["monitors"].as_array().ok_or("FX monitor identities")?;
+        if monitors.len() > 4096
+            || monitors
+                .iter()
+                .enumerate()
+                .any(|(i, id)| *id != format!("monitor-{}", i + 1))
+        {
+            return Err("FX monitor identity order".into());
+        }
+    }
+    if v.get("restore_version").is_some() {
+        keys.extend(["restore_version", "restore_ready"]);
+        if v["restore_ready"].as_bool().is_none() {
+            return Err("FX restore safety observation".into());
+        }
+        if v["available"] != true || !matches!(v["restore_version"].as_u64(), Some(0 | 1)) {
+            return Err("FX restore capability".into());
+        }
+    }
     crate::provider::keys(&v, &keys)?;
     if v["module"] != "audio"
         || ["writer", "lease", "request_id", "reason", "effective_frame"]
@@ -220,6 +297,11 @@ pub fn snapshot(v: Value) -> Result<Value, String> {
                 crate::provider::counter(b[k].as_str().ok_or("FX generation")?)?;
             }
             let c = configuration(b["configuration_json"].as_str().ok_or("FX configuration")?)?;
+            if let Some(monitors) = v["monitors"].as_array() {
+                validate_returns(&c["returns"], Some(monitors.len()))?;
+            } else if c.get("returns").is_some() {
+                return Err("FX unadvertised routing".into());
+            }
             if c["sends"].as_array().unwrap().len() != inputs.len() {
                 return Err("FX input shape".into());
             }
@@ -310,13 +392,24 @@ pub fn snapshot(v: Value) -> Result<Value, String> {
 }
 #[derive(Clone, Debug)]
 pub enum Operation {
+    SavedProbe,
+    Save(std::path::PathBuf, usize),
+    Load(std::path::PathBuf, usize),
+    ReviewSaved,
     Probe,
+    LegacyProbe,
     Review(Value),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
+    SavedProbe,
+    Save,
+    Load,
+    SavedSlot(i8),
+    ReviewSaved,
     Open,
     Probe,
+    LegacyProbe,
     Scope,
     Bus(i8),
     Algorithm(i8),
@@ -328,6 +421,8 @@ pub enum Action {
 }
 #[derive(Default)]
 pub struct Editor {
+    pub saved_slot: usize,
+    pub directory: Option<std::path::PathBuf>,
     pub open: bool,
     pub bus: usize,
     pub field: usize,
@@ -365,7 +460,7 @@ pub fn field_labels(algorithm: u64) -> [&'static str; 9] {
         "Feedback",
         "Damping / darkness",
         "Rate (Hz)",
-        "Return level",
+        "Shared wet-processing gain",
         "BPM",
         "Note division",
         "Straight / dotted / triplet",
@@ -423,6 +518,41 @@ pub fn sound_lines(c: &Value) -> Vec<String> {
     lines
 }
 pub fn review_lines(body: &Value, snapshot: Option<&Value>) -> String {
+    if body.get("restore").is_some() {
+        let mut lines = vec!["RESTORE FOUR SAVED FX AUXES — outputs remain DISARMED".to_owned(),
+            "Compatibility: exact show, owner library, ordered logical inputs/physical bindings and monitors. No remapping.".into(),
+            "Core mix, safety mutes, human holds, recording, PA, lighting and talkback are not restored. Rearm is a separate reviewed action.".into()];
+        if let Some(snapshot) = snapshot {
+            lines.push(format!(
+                "Observed output quiescence: {}. Confirm requires fresh closed output gates.",
+                snapshot["restore_ready"]
+            ));
+        }
+        match crate::fx_saved::edits(body) {
+            Ok(edits) => {
+                for edit in edits {
+                    let i = edit["bus"].as_u64().unwrap() as usize;
+                    if let Some(s) = snapshot {
+                        lines.push(format!(
+                            "CURRENT FX {} complete configuration: {}",
+                            i + 1,
+                            s["buses"][i]["configuration_json"]
+                                .as_str()
+                                .unwrap_or("unavailable")
+                        ));
+                    }
+                    lines.push(review_lines(&edit, snapshot));
+                    lines.push(format!(
+                        "Exact saved owner settings: {}",
+                        edit["configuration_json"].as_str().unwrap_or("invalid")
+                    ));
+                }
+            }
+            Err(e) => lines.push(e),
+        }
+        return lines.join("\n");
+    }
+
     let bus = body["bus"].as_u64().unwrap_or(0) as usize;
     if body["panic"] == true {
         return format!(
@@ -440,7 +570,7 @@ pub fn review_lines(body: &Value, snapshot: Option<&Value>) -> String {
             name(c["settings"]["algorithm"].as_u64().unwrap_or(0))
         ),
         format!(
-            "Return {:.0}% / {}",
+            "Shared wet-processing gain {:.0}% / {}",
             c["settings"]["gain"].as_f64().unwrap_or(0.) * 100.,
             if c["settings"]["bypass"] == 1 {
                 "Bypassed: tails allowed"
@@ -449,6 +579,20 @@ pub fn review_lines(body: &Value, snapshot: Option<&Value>) -> String {
             }
         ),
     ];
+    if let Some(r) = c.get("returns") {
+        lines.push(format!(
+            "Main-only return: {:.0}%",
+            r["main"].as_f64().unwrap() * 100.
+        ));
+        for (i, level) in r["monitors"].as_array().unwrap().iter().enumerate() {
+            lines.push(format!(
+                "monitor-{} return: {:.0}%",
+                i + 1,
+                level.as_f64().unwrap() * 100.
+            ));
+        }
+        lines.push("Main silence does not silence monitor returns. Bypass drains tails to every destination.".into());
+    }
     lines.extend(sound_lines(&c));
     lines.push("Channel sends (post-fader and post-mute):".into());
     if let Some(sends) = c["sends"].as_array() {

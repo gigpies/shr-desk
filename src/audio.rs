@@ -659,7 +659,10 @@ impl Request {
         } else if matches!(self.kind.as_str(), "fx_aux_snapshot" | "fx_aux_configure") {
             if self.kind == "fx_aux_configure" {
                 crate::fx_aux::validate_body(&self.body)?;
-            } else if self.body != json!({}) {
+            } else if self.body != json!({})
+                && self.body != json!({"return_routing":true})
+                && self.body != json!({"return_routing":true,"saved_intent":true})
+            {
                 return fail("FX aux read body");
             }
             if (self.kind == "fx_aux_configure") != c.writer.is_some() {
@@ -2123,6 +2126,15 @@ impl Session {
             "fx_aux_configure" => {
                 if self.scope != "fx_configuration" {
                     return fail("FX aux requires FX configuration scope");
+                }
+                if body.get("restore").is_some()
+                    && self
+                        .fx_aux
+                        .snapshot
+                        .as_ref()
+                        .is_none_or(|s| s["restore_ready"] != true)
+                {
+                    return fail("FX restore requires freshly disarmed/quiesced output readback");
                 }
                 self.fx_aux.validate(body, now)
             }

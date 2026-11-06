@@ -32,3 +32,41 @@ cargo +1.97.1 test --release --locked --features hardware-host --lib actual_four
 Use optimized code for this opt-in real transport episode; all existing control
 and lease deadlines remain unchanged. The normal decoder tests use these frozen
 producer artifacts without starting a network or loading an external library.
+
+`return-owner.json` and `return-brain-owner.json` are opt-in version-1 return
+snapshots produced by the actual Desk Frontend keyboard/review/confirmation path.
+Every aux reaches Main 0.95, monitor-1 0.05 and monitor-2 0.10, with matching
+host applied generations and independently checked owner state. The former uses
+the 16-input headless local provider; the latter uses the four-input authenticated
+loopback Stagebox/Brain provider. Both use the approved GP-H1 SHR FX library.
+No fixture is evidence of physical output or a product capacity ceiling.
+
+Build Desk's `fx_aux_actual` integration executable with `cargo +1.97.1 test
+--locked -j1 --test fx_aux_actual --no-run`. Under the same shared lock and
+single-job environment, regenerate the local fixture from Desk:
+
+```sh
+GP_FX_PROVIDER_EXE=/absolute/gigpies/target/release/gigpies-headless \
+GP_FX_LIBRARY=/absolute/libshr_fx.so \
+GP_FX_DESK_FIXTURE=/absolute/shr-desk/tests/fixtures/gp-fx-aux/v1/return-owner.json \
+cargo +1.97.1 test --locked -j1 --test fx_aux_actual \
+  actual_four_aux_frontend_review_and_readback -- --ignored --test-threads=1
+```
+
+For independent sample acceptance, set `GP_FX_DESK_TEST_EXE` to the exact Desk
+executable reported by `--no-run`, and run from GigPies:
+
+```sh
+GP_FX_LIBRARY=/absolute/libshr_fx.so \
+GP_FX_DESK_TEST_EXE=/absolute/shr-desk/target/debug/deps/fx_aux_actual-HASH \
+GP_FX_DESK_FIXTURE=/absolute/shr-desk/tests/fixtures/gp-fx-aux/v1/return-brain-owner.json \
+cargo +1.97.1 test --release --locked -j1 --features hardware-host --lib -- \
+  --ignored --test-threads=1 --nocapture \
+  actual_frontend_returns_local_samples actual_four_aux_tls_brain_controls_and_samples
+```
+
+The local sample harness does not write the remote fixture. Both harnesses own
+and clean their private sockets/credentials/children and compare independent
+Main/monitor samples after the Frontend reaches applied readback. Normal tests
+decode both frozen snapshots without starting providers. Current acceptance,
+limitations and remaining work belong to GigPies' GP-FX card.

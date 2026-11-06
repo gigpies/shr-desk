@@ -465,7 +465,14 @@ fn worker(
                     Operation::InputReleased
                         | Operation::Record(crate::recorder::Operation::Probe)
                         | Operation::Fx(crate::fx::Operation::Probe)
-                        | Operation::FxAux(crate::fx_aux::Operation::Probe)
+                        | Operation::FxAux(
+                            crate::fx_aux::Operation::Probe
+                                | crate::fx_aux::Operation::LegacyProbe
+                                | crate::fx_aux::Operation::SavedProbe
+                                | crate::fx_aux::Operation::Load(..)
+                                | crate::fx_aux::Operation::Save(..)
+                                | crate::fx_aux::Operation::ReviewSaved
+                        )
                         | Operation::Measurement(
                             crate::pa_measurement::editor::Operation::Probe
                                 | crate::pa_measurement::editor::Operation::Result(_)
@@ -665,7 +672,9 @@ fn worker(
                 let local_result = match &r.operation {
                     Operation::Record(crate::recorder::Operation::Review { .. })
                     | Operation::Fx(crate::fx::Operation::Review { .. })
-                    | Operation::FxAux(crate::fx_aux::Operation::Review(_))
+                    | Operation::FxAux(
+                        crate::fx_aux::Operation::Review(_) | crate::fx_aux::Operation::ReviewSaved,
+                    )
                     | Operation::ReviewDevice(..)
                     | Operation::ReviewBrain { .. }
                     | Operation::ReviewStructure { .. }
@@ -723,10 +732,32 @@ fn worker(
                             }
                         }
                         Operation::FxAux(command) => match command {
+                            crate::fx_aux::Operation::SavedProbe => {
+                                fx_aux_enabled = true;
+                                fx_aux_poll = Instant::now();
+                                o.saved_fx_aux()
+                            }
+                            crate::fx_aux::Operation::Save(directory, slot) => {
+                                o.save_fx_aux(&directory, slot)
+                            }
+                            crate::fx_aux::Operation::Load(directory, slot) => {
+                                o.load_fx_aux(&directory, slot)
+                            }
+                            crate::fx_aux::Operation::ReviewSaved => {
+                                o.review_saved_fx_aux()?;
+                                serial = serial.checked_add(1).ok_or("review exhausted")?;
+                                review = Some((serial, o.reviewed().unwrap_or_default()));
+                                Ok(())
+                            }
                             crate::fx_aux::Operation::Probe => {
                                 fx_aux_enabled = true;
                                 fx_aux_poll = Instant::now();
                                 o.refresh_fx_aux(true)
+                            }
+                            crate::fx_aux::Operation::LegacyProbe => {
+                                fx_aux_enabled = true;
+                                fx_aux_poll = Instant::now();
+                                o.legacy_fx_aux()
                             }
                             crate::fx_aux::Operation::Review(body) => {
                                 o.stage_fx_aux(body)?;

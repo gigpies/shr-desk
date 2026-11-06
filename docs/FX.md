@@ -3,7 +3,8 @@
 ## Four FX auxes
 
 Open **Menu → FX auxes**. Select an input in Mix, then set its send to FX1,
-FX2, FX3 or FX4. Each aux has its own effect and wet return to Main. Sends follow
+FX2, FX3 or FX4. Each aux has its own effect, a Main-only wet return and an independent wet return
+to each configured monitor when the provider supports return routing. Sends follow
 channel fader, mute and pan; they start at zero. Monitor buses remain separate,
 with their existing pre/post send choices and physical outputs.
 
@@ -21,9 +22,11 @@ read-only and never restores a previous grant automatically.
 
 On the FX aux page, **[ / ]** selects an aux, **A / D** chooses an effect,
 **Up / Down** chooses a field, and **− / +** changes its value. Fields are the
-selected input's send, effect time, amount, damping/tone, rate/tune, return level,
-BPM, note division and rhythmic modifier. **W** probes and **X** selects the FX
-scope. Return and send levels are linear 0..1. Delay time and reverb predelay are
+selected input's send, effect time, amount, damping/tone, rate/tune, shared wet-processing gain,
+BPM, note division and rhythmic modifier, followed by Main-only return and
+each configured monitor return. Up/Down traverses the complete configured list;
+the visible monitor window follows selection. Zero monitors leaves only Main. **W** probes and **X** selects the FX
+scope. Send and host-return levels are linear 0..1, adjusted in 5% steps. Delay time and reverb predelay are
 milliseconds. Algorithm-specific ranges/defaults come from the provider:
 reverb amount is normalized decay and higher damping is darker; exciter amount
 is drive, higher tone is brighter, and tune is Hz. Unavailable parameters refuse.
@@ -39,22 +42,43 @@ No external clock or physical tap controller is acquired by this integration.
 **Space / FX aux bypass** stops new excitation and lets the tail drain.
 **P / Clear FX aux tail** clears that aux at the confirmed source boundary;
 new input can excite it again. Brain controls use a 100ms scheduling lead. Panic can interrupt an unsettled change: an unswapped replacement is
-cancelled and readback shows the actual active settings. For sustained silence, turn down its send/return or use bypass. Changing
+cancelled and readback shows the actual active settings. For sustained wet silence at one destination, set its return to zero. Host
+return levels ramp over 240 source frames (5 ms at 48 kHz).
+Zeroing every input send to an aux, or using bypass, stops new excitation but
+leaves existing tails. Changing
 algorithm/parameters uses the owner's bounded fade/swap transition and replaces
 old history; it is not a tail-preserving preset morph.
 
-The page shows all four effects/returns, changing versus settled state and owner
-faults.
+**Shared wet-processing gain** belongs to SHR FX and affects every destination.
+**Main-only return** changes only Main; setting it to zero leaves enabled monitor
+returns audible. Monitor returns start at zero and use the same stereo effect,
+folded to mono as `(L + R) / 2`. Opposite-polarity wet channels can cancel.
+Bypass and clear-tail act on that one shared owner, not separate monitor effects.
+Editing an effect, input send, tempo or another return preserves untouched routes.
+
+**W** opts into independent return readback. A failed read remains an error and
+does not establish legacy support. On an older provider, explicitly reconnect
+read-only if the connection closed, then choose **L / Read legacy FX**. This
+requests the original palette/send contract and leaves independent routing clearly
+unavailable. Grant still requires explicit action. W can probe support again;
+no mutation is retried to discover capabilities.
+
+The page shows confirmed readback, pending requests, refusals, UNKNOWN outcomes,
+staleness, source running/disarmed state and owner faults. A running source is
+software state, not proof of physical output. Last-confirmed values remain visible
+when stale. The complete review lists Main and every monitor target.
 A prepared/accepted edit is not completion: Desk waits for actual settled owner
 readback. Unknown outcomes require explicit probe and a new review; no replay.
 Four-aux capability requires the configured Brain palette owner (or the explicit
 local source-host variant).
 It is unavailable on older providers; Desk never substitutes simulator state.
 The normal four-aux path sends four stereo buses to Brain and returns their wet
-results to Main. The legacy Brain stereo delay remains a separate compatible path.
+results to independent Main/monitor host routing. The legacy Brain stereo delay remains a separate compatible path.
 UI reconnect retains the sounding configuration. Process restart or a new Brain
-owner session resets sends to zero; auxes are not yet part of saved shows. Source recovery preserves send
-intent but requires explicit output rearm. Physical aggregate performance and
+owner session resets sends to zero; the separate saved FX workflow below can retain intent. Source recovery preserves send and return
+intent while disarmed and requires explicit output rearm. A new Brain owner resets
+Main to unity and monitor returns to zero. Owner/source replacement invalidates
+stale reviews; read fresh state and explicitly review again. Physical aggregate performance and
 listening are still unqualified.
 
 ## Legacy remote stereo delay
@@ -116,3 +140,42 @@ the explicitly ignored `fx_actual_frontend` episode requires a separately launch
 hash-pinned provider/Brain, explicit readiness, private TLS and independent
 streamed wet/PA/raw REC evidence. No physical devices, windows, playback, acoustic
 acceptance or hardware clock qualification are implied.
+
+## Saved FX intent
+
+Configure `SHR_DESK_FX_SHOW_DIRECTORY` to an existing owned absolute directory
+with mode 0700. This is local file storage configuration, not part of a show.
+Open the FX page and use **K / Probe saved FX support** to verify compatibility.
+The page offers sixteen slots (`fx-scene-01.json` through `fx-scene-16.json`).
+Use **, / .** or the semantic menu to select a slot. The page shows the loaded
+slot separately; selecting another slot requires loading it before preview.
+**S / Save FX intent** saves
+fresh settled configuration for all four auxes, replacing that slot explicitly.
+A failed save reports whether replacement completed and durability is uncertain.
+
+**O / Load saved FX intent** reads the selected file without changing the engine
+or granting control. **K / Probe saved FX support** is read-only. **V / Preview
+and restore saved FX intent** opens the existing paginated review of all current
+and saved settings, sends, Main and every monitor return. An incompatible file
+opens a complete preview with restore unavailable; no send is remapped and no
+legacy defaults are invented. Read every review page;
+**Esc / Cancel** leaves the engine unchanged. **Enter / Confirm reviewed change**
+is the separate explicit restore action and requires the existing FX grant.
+
+Outputs must already be disarmed or fully muted through the existing reviewed
+output controls. Restore preserves that safety state and all human holds. Source
+clock recovery, if needed, is separate. Successful restore never rearms outputs;
+use the existing separately reviewed **Rearm outputs** action when appropriate.
+A prepared request is not confirmation. The page distinguishes saved intent,
+review, pending, refused, UNKNOWN and confirmed applied readback. Missing completion
+stays UNKNOWN even if values match later; explicitly probe and review again.
+Reconnect is read-only and never replays or grants control.
+
+The file saves FX intent only, without tails, runtime authority, safety/arm state,
+recording or talkback execution. It neither restores core/PA/light scenes nor
+recalls automatically at startup. Exact input identity tuples and logical monitor
+IDs must match the same show and approved owner. Physical monitor/device identity
+is not represented by the producer's generated logical monitor names.
+[Saved contract](CONTROL_CONTRACT.md#saved-four-aux-intent) and
+[GP-SHOW](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-show--audio-scenes-and-operator-recovery)
+define compatibility, validation and remaining scene work.

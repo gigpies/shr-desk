@@ -549,7 +549,26 @@ impl Frontend {
         );
         for (label, a) in [
             ("FX auxes", crate::fx_aux::Action::Open),
+            ("Probe saved FX support", crate::fx_aux::Action::SavedProbe),
+            (
+                "Save FX intent to selected slot",
+                crate::fx_aux::Action::Save,
+            ),
+            ("Load selected saved FX intent", crate::fx_aux::Action::Load),
+            (
+                "Preview and restore saved FX intent",
+                crate::fx_aux::Action::ReviewSaved,
+            ),
+            (
+                "Previous saved FX slot",
+                crate::fx_aux::Action::SavedSlot(-1),
+            ),
+            ("Next saved FX slot", crate::fx_aux::Action::SavedSlot(1)),
             ("Probe FX auxes", crate::fx_aux::Action::Probe),
+            (
+                "Read legacy FX (routing unavailable)",
+                crate::fx_aux::Action::LegacyProbe,
+            ),
             ("Control FX auxes", crate::fx_aux::Action::Scope),
             ("Previous FX aux", crate::fx_aux::Action::Bus(-1)),
             ("Next FX aux", crate::fx_aux::Action::Bus(1)),

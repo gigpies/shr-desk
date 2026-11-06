@@ -17,7 +17,9 @@ writable FX and scene workflows must not be inferred from simulator pictures.
 - Measured audio presentation is a contribution to
   [GP-METER](https://github.com/gigpies/gigpies/blob/main/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-meter--measured-audio-on-the-real-desk).
   Keep its end-to-end plan and progress there; no separate DS-METER tracker.
-- Four-aux FX controls contribute to [GP-FX](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-fx--writable-owner-effects-in-the-console); [FX operation](FX.md) owns the workflow. Recording and scene contributions follow their shared cards.
+- Four-aux palette, send and independent Main/configured-monitor return controls contribute to [GP-FX](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-fx--writable-owner-effects-in-the-console); [FX operation](FX.md) owns the workflow. Recording and scene contributions follow their shared cards.
+- Saved four-aux intent and reviewed disarmed restore contribute to
+  [GP-SHOW](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-show--audio-scenes-and-operator-recovery); [saved FX usage](FX.md#saved-fx-intent) and [contract](CONTROL_CONTRACT.md#saved-four-aux-intent) own consumer behavior.
 - Physical console work follows GP-H2. Module-only learned-profile or renderer
   work gets one card here only when selected, with actual provider/device bounds.
 

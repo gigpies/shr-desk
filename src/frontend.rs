@@ -1187,7 +1187,14 @@ impl Frontend {
         if self.fx_aux_ui.open && self.state.as_ref().is_none_or(|s| s.review.is_none()) {
             use crate::fx_aux::Action as A;
             let a = match key {
+                "s" | "S" => Some(A::Save),
+                "o" | "O" => Some(A::Load),
+                "v" | "V" => Some(A::ReviewSaved),
+                "k" | "K" => Some(A::SavedProbe),
+                "," => Some(A::SavedSlot(-1)),
+                "." => Some(A::SavedSlot(1)),
                 "w" | "W" => Some(A::Probe),
+                "l" | "L" => Some(A::LegacyProbe),
                 "x" | "X" => Some(A::Scope),
                 "[" => Some(A::Bus(-1)),
                 "]" => Some(A::Bus(1)),
@@ -4656,3 +4663,6 @@ impl Frontend {
 }
 #[cfg(test)]
 mod gp18_ui_tests;
+
+#[cfg(test)]
+mod fx_aux_tests;
