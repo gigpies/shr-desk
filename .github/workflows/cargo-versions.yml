@@ -1,0 +1,27 @@
+name: Cargo dependency inventory
+on:
+  schedule:
+    - cron: '23 6 * * 2'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/cargo-versions.yml
+      - scripts/check_dependency_versions.py
+      - scripts/test_dependency_versions.py
+      - Cargo.toml
+      - Cargo.lock
+      - vendor/**/Cargo.toml
+permissions:
+  contents: read
+jobs:
+  inventory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test inventory behavior
+        run: python3 -m unittest discover -s scripts -p 'test_dependency_versions.py'
+      - name: Record current registry versions
+        run: python3 scripts/check_dependency_versions.py >> "$GITHUB_STEP_SUMMARY"

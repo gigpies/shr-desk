@@ -8,11 +8,5 @@ updates:
     groups:
       actions:
         patterns: ['*']
-  - package-ecosystem: cargo
-    directory: /
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 3
-    groups:
-      rust-compatible:
-        update-types: [minor, patch]
+# Cargo source replacement is unsupported by Dependabot. See docs/CI.md.
+# Weekly crates.io inventory remains enabled in cargo-versions.yml.
