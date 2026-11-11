@@ -27,7 +27,10 @@
     "scripts/check_publication.py",
     "scripts/test_publication.py",
     ".github/workflows/ci.yml",
-    "scripts/build_channel_materials.py"
+    "scripts/build_channel_materials.py",
+    "scripts/check_dependency_versions.py",
+    "scripts/test_dependency_versions.py",
+    ".github/workflows/cargo-versions.yml"
   ],
   "binary_artwork": [],
   "binary_assets": {
