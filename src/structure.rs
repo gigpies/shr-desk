@@ -17,6 +17,8 @@ pub struct Snapshot {
     pub topology: Topology,
     pub clock: Clock,
     pub outputs_quiesced: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup_hold: Option<bool>,
     pub pa_configuration_json: Option<String>,
     pub pa_program_buses: Vec<usize>,
     pub pa_status: Option<Value>,
@@ -65,7 +67,13 @@ pub struct Reply {
     pub snapshot: Option<Snapshot>,
 }
 pub fn decode_reply(bytes: &[u8]) -> Result<Reply, String> {
-    let value = provider::parse_document(bytes)?;
+    let mut value = provider::parse_document(bytes)?;
+    let setup_hold = value["snapshot"]
+        .as_object_mut()
+        .and_then(|v| v.remove("setup_hold"));
+    if setup_hold.as_ref().is_some_and(|v| !v.is_boolean()) {
+        return Err("setup hold shape".into());
+    }
     provider::keys(
         &value,
         &[
@@ -97,6 +105,9 @@ pub fn decode_reply(bytes: &[u8]) -> Result<Reply, String> {
                 "pa_capabilities",
             ],
         )?;
+    }
+    if let Some(hold) = setup_hold {
+        value["snapshot"]["setup_hold"] = hold;
     }
     let reply: Reply = serde_json::from_value(value).map_err(|e| e.to_string())?;
     if reply.contract != "GP14-structure" || reply.version != 1 {
@@ -151,20 +162,34 @@ pub fn decode_reply(bytes: &[u8]) -> Result<Reply, String> {
 pub fn is_kind(kind: &str) -> bool {
     matches!(
         kind,
-        "structural_snapshot" | "pa_set" | "output_patch" | "output_mute" | "output_rearm"
+        "structural_snapshot"
+            | "setup_snapshot"
+            | "setup_hold"
+            | "setup_release"
+            | "pa_set"
+            | "output_patch"
+            | "output_mute"
+            | "output_rearm"
     )
 }
 pub fn scope(kind: &str) -> Option<&'static str> {
     match kind {
-        "structural_snapshot" => None,
+        "structural_snapshot" | "setup_snapshot" => None,
         "output_patch" => Some("output_routes"),
-        "pa_set" | "output_mute" | "output_rearm" => Some("pa_configuration"),
+        "setup_hold" | "setup_release" | "pa_set" | "output_mute" | "output_rearm" => {
+            Some("pa_configuration")
+        }
         _ => None,
     }
 }
 pub fn validate_body(kind: &str, body: &Value, snapshot: Option<&Snapshot>) -> Result<(), String> {
     match kind {
-        "structural_snapshot" | "output_mute" | "output_rearm" => provider::keys(body, &[]),
+        "setup_snapshot"
+        | "setup_hold"
+        | "setup_release"
+        | "structural_snapshot"
+        | "output_mute"
+        | "output_rearm" => provider::keys(body, &[]),
         "output_patch" => {
             provider::keys(body, &["outputs"])?;
             let outputs: Vec<OutputPort> =
@@ -517,7 +542,11 @@ fn editable_fields(value: &Value, path: &str, fields: &mut Vec<String>) {
 }
 
 pub fn decode_snapshot(bytes: &[u8]) -> Result<Snapshot, String> {
-    let value = provider::parse_document(bytes)?;
+    let mut value = provider::parse_document(bytes)?;
+    let setup_hold = value.as_object_mut().and_then(|v| v.remove("setup_hold"));
+    if setup_hold.as_ref().is_some_and(|v| !v.is_boolean()) {
+        return Err("setup hold shape".into());
+    }
     provider::keys(
         &value,
         &[
@@ -534,6 +563,9 @@ pub fn decode_snapshot(bytes: &[u8]) -> Result<Snapshot, String> {
             "pa_capabilities",
         ],
     )?;
+    if let Some(hold) = setup_hold {
+        value["setup_hold"] = hold;
+    }
     let snapshot: Snapshot = serde_json::from_value(value).map_err(|e| e.to_string())?;
     snapshot.validate()?;
     Ok(snapshot)

@@ -650,7 +650,9 @@ impl Request {
                 return fail("structural controls require dynamic authority");
             }
             crate::structure::validate_body(&self.kind, &self.body, None)?;
-            if (self.kind == "structural_snapshot") != c.writer.is_none() {
+            if matches!(self.kind.as_str(), "structural_snapshot" | "setup_snapshot")
+                != c.writer.is_none()
+            {
                 return fail("structural writer context");
             }
         }

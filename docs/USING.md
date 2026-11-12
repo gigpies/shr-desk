@@ -130,3 +130,57 @@ Check connection, selected scope and control grant. **Q** releases your control
 permission; it does not mute, release parameter Holds or stop the engine.
 After connection loss, read the current state before reviewing another change.
 [Detailed controls and recovery](NATIVE_FRONTEND.md).
+
+## Save and restore an audio setup
+
+Set `SHR_DESK_AUDIO_SETUP_DIRECTORY` to an absolute directory owned by your user,
+with permissions `0700`. Desk offers sixteen `audio-setup-NN.json` slots. This is
+separate from the FX-only slots. Saving replaces the selected slot durably; a
+reported storage error means replacement/durability may be uncertain.
+
+Use the controller/touch menu's **Audio setup** actions:
+
+1. Configure channels, Main, monitor sends/taps, routing, four FX auxes and PA
+   through the normal controls. Wait for transitions to settle. Select a slot
+   with Previous/Next slot, then **Save / replace selected slot**. The status
+   identifies the selected slot. Saving needs fresh complete owner readback.
+2. After restarting, select that slot and choose **Load and review current /
+   saved**. Loading and review do not change audio or acquire control. Read the
+   differences and remaining scopes; Cancel closes this read-only review.
+3. Select **Control PA**, request control, then **Hold all outputs** and confirm
+   its review. This quiesces Stagebox/PA, disarms Brain monitoring and closes
+   talkback. The provider refuses output rearm, Brain arm and held talkback
+   while this hold is active, including after Desk disconnects.
+4. Select each scope listed in the review (FOH, each affected monitor, PA,
+   output routes, operator monitor, talkback settings, FX). Request control,
+   choose **Restore current scope**, inspect every review page, and confirm.
+   Each command needs correlated completion and exact settled readback. A scope
+   may stop part way through; completed steps stay applied. No rollback is claimed.
+5. Choose **Verify all saved settings**. Zero remaining differences means the
+   current authoritative setup matches the saved intent. Recall receipts are
+   shown separately: a matching value never converts an UNKNOWN command into a
+   successful receipt. The review also reports live output hold, quiescence,
+   Brain arm and talkback-held state. Other scopes may still need review and restore.
+6. When satisfied, return to PA control and explicitly **Release hold, keep
+   disarmed**. Output rearm and Brain monitoring arm remain separate reviewed
+   actions. Neither saving, loading, verification nor reconnect activates outputs.
+
+The file includes channel gate/EQ/compression, fader/pan/mute, Master gain, all
+supported monitor levels and tap choices, output source assignments, complete PA
+configuration (including supported Master EQ), all four FX configurations and
+stable Brain monitor/talkback settings. It excludes recording execution, lighting,
+automation holds/modes, held talkback, grants, credentials and armed state.
+
+Input and output identities, sample rate and dimensions must match exactly.
+Changed port identities are incompatible even at the same channel count. There
+is no automatic remapping. Missing or incompatible owners, malformed files,
+stale reviews and unsettled processing refuse restoration. A bounded recall can
+pause with remaining differences; review again to continue.
+
+After interruption or provider failure, reconnect read-only and review the slot
+again. The small `audio-recall-NN.json` file retains each scope's last completion
+or UNKNOWN receipt. Do not delete an UNKNOWN receipt to imply success. Fresh
+review identifies what is currently matched and what still differs; explicit
+restore applies only those differences. Re-establish the setup hold after a
+provider restart. This workflow has software acceptance only; physical routing,
+listening, timing and live-show qualification are separate.

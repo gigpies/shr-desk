@@ -224,6 +224,26 @@ mod tests {
         .unwrap()
     }
     #[test]
+    fn setup_unpaired_module_health_never_refreshes_recorder_or_completes_command() {
+        let mut o = operator();
+        let mut v: Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/gp05/v1/status-unavailable.json"
+        ))
+        .unwrap();
+        v["fx"] = json!({"amount": 0.35});
+        assert!(
+            o.processing_frame(&serde_json::to_vec(&v).unwrap())
+                .unwrap()
+        );
+        assert!(o.recorder.received.is_none());
+        assert!(o.recorder.observation.is_none());
+        v["epoch"] = json!("10");
+        assert!(
+            o.processing_frame(&serde_json::to_vec(&v).unwrap())
+                .is_err()
+        );
+    }
+    #[test]
     fn record_reply_requires_every_sent_identity_and_does_not_claim_outcome() {
         let mut o = operator();
         let r: audio::Request = audio::Request {

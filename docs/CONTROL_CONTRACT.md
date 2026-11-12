@@ -312,3 +312,41 @@ and loss stop future motion; an already submitted unknown outcome is reported as
 uncertain and cannot be promoted to success from equal values. Fresh correlated
 completion/readback is required before another motion step. Physical controller
 acquisition/feel remains outside this software contract.
+
+
+## Complete audio setup
+
+`gigpies-audio-setup:1` embeds the existing composed intent shape (engine v4,
+Brain intent v1, PA owner JSON/bus map) and optional `gigpies-fx-intent:1`. The
+bounded file is at most 1 MiB, strict, duplicate-key rejecting and contains no live
+authority or armed state. Its exact inventory is owned by GP-SHOW. Map revision
+is normalized to 1; live map revision is always read from the provider. Compatibility
+compares the full topology except map revision and recalled output source choices.
+PA and FX availability must match; FX also requires the exact approved library hash.
+
+Opt-in `GP14-structure:1` commands `setup_snapshot`, `setup_hold`, `setup_release`
+have empty bodies. The snapshot is read-only and adds `setup_hold: boolean`;
+ordinary structural snapshots retain their original shape. Hold/release require
+PA configuration authority, a fresh structural read and the existing correlated
+sample-boundary transaction. Hold closes Stagebox/PA and Brain output paths;
+release leaves outputs muted. An active hold rejects rearm and Brain activation.
+The hold survives writer loss and source recovery, but is not saved arm state.
+A new provider starts disarmed and needs a new explicit hold before recall.
+
+Desk recalls changed commands in the currently granted scope through existing
+C-AUDIO, GP07 processing, GP18 sends, GP14 structure, GP15 Brain and GP-FX-aux
+contracts. It pins the reviewed revision/generation and complete current intent.
+Each submitted command is preceded by a durable UNKNOWN receipt. Only correlated
+applied completion plus fresh exact settled readback marks that step complete.
+Cross-scope recall is not atomic. Failure retains prior work, stops the scope and
+requires fresh review. A per-scope 30-second admission bound leaves remaining
+changes reviewable; individual transport/authority deadlines remain unchanged.
+Readback equality alone never resolves a missing completion. Receipts are tied
+to the exact saved payload SHA-256 and are never executable intent.
+
+Setup safety reads bind hold, Brain and raw state to the same common revision
+immediately before command admission. Later hold release/rearm conflicts with that
+revision; FX bundle publication independently checks source quiescence. Confirmation
+also rereads the selected file and refuses replacement since review. Positive
+completion requires the existing codec's exact applied status for that command,
+never an occurrence of the word “applied” inside a refusal/unknown explanation.

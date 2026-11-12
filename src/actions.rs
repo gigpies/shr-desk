@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
+    Setup(crate::setup_saved::Action),
     Record(crate::recorder::Action),
     Console(crate::controller_surface::Command),
     Fx(crate::fx::Action),
@@ -237,6 +238,7 @@ pub fn apply(d: &mut Desk, action: Action) -> Result<Option<Command>, String> {
         | Action::TalkbackRelease
         | Action::Topology
         | Action::Fx(_)
+        | Action::Setup(_)
         | Action::FxAux(_)
         | Action::Measurement(_)
         | Action::StructureEdit

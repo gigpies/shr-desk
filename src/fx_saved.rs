@@ -1,10 +1,6 @@
 //! Portable saved intent consumer. Files contain no live authority or arm state.
 use serde_json::{Value, json};
-use std::{
-    fs,
-    io::{Read, Write},
-    path::Path,
-};
+use std::path::Path;
 pub const MAX_BYTES: usize = 256 * 1024;
 pub fn decode(bytes: &[u8]) -> Result<Value, String> {
     let text = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
@@ -166,81 +162,10 @@ pub fn edits(body: &Value) -> Result<Vec<Value>, String> {
         })
         .collect()
 }
-fn directory(path: &Path) -> Result<(), String> {
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
-    let m = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
-    if !path.is_absolute()
-        || !m.is_dir()
-        || m.permissions().mode() & 0o777 != 0o700
-        || m.uid() != fs::metadata("/proc/self").map_err(|e| e.to_string())?.uid()
-    {
-        return Err("FX show directory must be an owned absolute 0700 directory".into());
-    }
-    Ok(())
-}
-fn name(slot: usize) -> Result<String, String> {
-    if slot >= 16 {
-        return Err("FX saved slot".into());
-    }
-    Ok(format!("fx-scene-{:02}.json", slot + 1))
-}
 pub fn load(path: &Path, slot: usize) -> Result<Value, String> {
-    directory(path)?;
-    let path = path.join(name(slot)?);
-    if !fs::symlink_metadata(&path)
-        .map_err(|e| e.to_string())?
-        .is_file()
-    {
-        return Err("FX saved file must be regular".into());
-    }
-    let mut bytes = Vec::new();
-    fs::File::open(path)
-        .map_err(|e| e.to_string())?
-        .take(MAX_BYTES as u64 + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|e| e.to_string())?;
-    decode(&bytes)
+    decode(&crate::saved_file::load(path, "fx-scene", slot, MAX_BYTES)?)
 }
 pub fn save(path: &Path, slot: usize, value: &Value) -> Result<(), String> {
-    use std::os::unix::fs::OpenOptionsExt;
-    directory(path)?;
     validate(value)?;
-    let bytes = serde_json::to_vec_pretty(value).map_err(|e| e.to_string())?;
-    if bytes.len() > MAX_BYTES {
-        return Err("FX saved capacity".into());
-    }
-    let name = name(slot)?;
-    let mut temp = None;
-    for n in 0..64 {
-        let p = path.join(format!(".{name}.{}.{n}.tmp", std::process::id()));
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&p)
-        {
-            Ok(f) => {
-                temp = Some((p, f));
-                break;
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => (),
-            Err(e) => return Err(e.to_string()),
-        }
-    }
-    let (p, mut f) = temp.ok_or("FX temporary capacity")?;
-    let mut replaced = false;
-    let result = (|| -> std::io::Result<()> {
-        f.write_all(&bytes)?;
-        f.flush()?;
-        f.sync_all()?;
-        fs::rename(&p, path.join(name))?;
-        replaced = true;
-        fs::File::open(path)?.sync_all()
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&p);
-    }
-    result.map_err(|e| {
-        format!("FX save failed; replacement completed={replaced}, durability unconfirmed: {e}")
-    })
+    crate::saved_file::save(path, "fx-scene", slot, value, MAX_BYTES)
 }

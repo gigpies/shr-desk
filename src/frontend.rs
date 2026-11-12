@@ -10,6 +10,8 @@ mod measurement;
 mod provider;
 mod recorder;
 #[cfg(test)]
+mod setup_tests;
+#[cfg(test)]
 use crate::local_audio::Operator;
 use crate::{
     actions::{self, Action},
@@ -62,6 +64,7 @@ impl MotionGuard {
 }
 #[derive(Clone, Debug)]
 pub enum Operation {
+    Setup(crate::setup_saved::Operation),
     MasterMotion {
         value: i64,
         guard: MotionGuard,
@@ -346,6 +349,8 @@ pub struct Frontend {
     pub exact_draft: Option<ExactDraft>,
     pub fx_ui: crate::fx::Editor,
     pub fx_aux_ui: crate::fx_aux::Editor,
+    pub setup_slot: usize,
+    pub setup_directory: Option<std::path::PathBuf>,
     pub measurement_ui: crate::pa_measurement::editor::State,
     pub send_draft: Option<SendDraft>,
     send_entry: Option<String>,
@@ -429,6 +434,8 @@ impl Frontend {
             exact_draft: None,
             fx_ui: Default::default(),
             fx_aux_ui: Default::default(),
+            setup_slot: 0,
+            setup_directory: None,
             measurement_ui: Default::default(),
             send_draft: None,
             send_entry: None,
@@ -1065,7 +1072,9 @@ impl Frontend {
             self.fence();
             self.selected = selected;
             self.keybed_bank = selected / 24;
-            let _ = self.provider.send(None, Operation::Cancel);
+            // The generation fence already cancels unsent reviews in the worker.
+            // Do not enqueue a second cancellation that overwrites a correlated
+            // routing/setup completion with a misleading CANCELLED status.
             // Require the worker to observe the new generation before edits resume.
             self.message = "Inventory changed: intents discarded; refreshing authority".into();
             return;
@@ -1778,6 +1787,37 @@ impl Frontend {
         match action {
             Action::Console(_) => unreachable!(),
             Action::Record(a) => self.record_action(a),
+            Action::Setup(a) => {
+                use crate::setup_saved::{Action as A, Operation as O};
+                match a {
+                    A::Slot(d) => {
+                        self.setup_slot =
+                            (self.setup_slot as i32 + i32::from(d)).rem_euclid(16) as usize;
+                        self.message =
+                            format!("Selected audio setup slot {}/16", self.setup_slot + 1);
+                        Ok(())
+                    }
+                    A::Hold | A::ReleaseHold => self.send(Operation::ReviewStructure {
+                        kind: if a == A::Hold {
+                            "setup_hold"
+                        } else {
+                            "setup_release"
+                        }
+                        .into(),
+                        body: json!({}),
+                    }),
+                    _ => {
+                        let path=self.setup_directory.clone().or_else(||std::env::var_os("SHR_DESK_AUDIO_SETUP_DIRECTORY").map(std::path::PathBuf::from)).ok_or("Configure SHR_DESK_AUDIO_SETUP_DIRECTORY to an owned absolute 0700 directory")?;
+                        self.send(Operation::Setup(match a {
+                            A::Save => O::Save(path, self.setup_slot),
+                            A::Review => O::Review(path, self.setup_slot),
+                            A::Restore => O::Restore(path, self.setup_slot),
+                            A::Verify => O::Verify(path, self.setup_slot),
+                            _ => unreachable!(),
+                        }))
+                    }
+                }
+            }
             Action::FxAux(a) => self.fx_aux_action(a),
             Action::Fx(a) => {
                 self.fx_aux_ui.open = false;
@@ -1982,7 +2022,11 @@ impl Frontend {
                 if !raw.authority.modes.iter().any(|(s, _)| s == &scope)
                     && !matches!(
                         scope.as_str(),
-                        "pa_configuration" | "output_routes" | "fx_configuration"
+                        "pa_configuration"
+                            | "output_routes"
+                            | "fx_configuration"
+                            | "local_operator_monitor"
+                            | "talkback_destinations"
                     )
                 {
                     return Err("scope not advertised".into());

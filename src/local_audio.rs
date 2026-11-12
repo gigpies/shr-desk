@@ -10,6 +10,7 @@ mod fx;
 mod fx_aux;
 mod measurement;
 mod recorder;
+mod setup;
 mod transport;
 #[cfg(test)]
 use crate::audio::Request;
@@ -127,6 +128,7 @@ pub struct Operator {
     start: Instant,
     draft: Option<Draft>,
     scope: String,
+    setup_probe: bool,
     brain_signal: Option<std::sync::Arc<crate::brain::HoldSignal>>,
     motion_guard: Option<crate::frontend::MotionGuard>,
     guard: Option<(std::sync::Arc<std::sync::atomic::AtomicU64>, u64)>,
@@ -216,6 +218,7 @@ impl Operator {
             paired_enabled: false,
             maintenance_replies: std::collections::VecDeque::new(),
             transport,
+            setup_probe: false,
             session: Session::new_version(show, epoch, writer, scope, version)?,
             start: Instant::now(),
             draft: None,
@@ -351,6 +354,7 @@ impl Operator {
     }
     pub(crate) fn reviewed(&self) -> Option<String> {
         self.draft.as_ref().map(|d| {
+            if matches!(d.kind.as_str(), "setup_preview" | "setup_restore") { return d.body["report"].as_str().unwrap_or("Setup review unavailable").to_owned(); }
             if crate::recorder::mutation(&d.kind) {
                 let tracks = self.recorder.observation.as_ref().map(|o|o.mapping.join(", ")).unwrap_or_default();
                 return format!("{} {} / revision {} / scope {} / show {} / epoch {}\nRaw tracks in stem order: {}\n{}\nAdmission is not recording success. Inspect preparing, recording, finalizing and finalized outcome. Durable frames remain UNKNOWN.",d.kind,d.body,d.revision,self.scope,self.session.snapshot_request().context.show_id,self.session.snapshot_request().context.epoch,tracks,if d.kind=="record_start" {"Create a NEW take under the provider private takes directory. Storage readiness is asynchronous."} else {"Quiesce this exact take, drain accepted frames and finalize. Incomplete/error outcomes preserve files for owner recovery."});
@@ -362,6 +366,8 @@ impl Operator {
                 return crate::fx_aux::review_lines(&d.body,self.session.fx_aux.snapshot.as_ref());
             }
             if let Some(b)=&d.fx_basis { let m:crate::fx::Mutation=serde_json::from_value(d.body.clone()).expect("validated FX review"); return format!("{}\nAuthority revision {} / scope {} / show {} / epoch {}",crate::fx::review_lines(b,&m),d.revision,self.scope,self.session.snapshot_request().context.show_id,self.session.snapshot_request().context.epoch); }
+            if d.kind=="setup_hold" {return "HOLD AUDIO OUTPUTS: quiesce Stagebox and PA; disarm Brain monitor and close talkback. The provider will refuse rearm and new held talkback until a separate explicit hold release. No saved settings are applied by this action.".into();}
+            if d.kind=="setup_release" {return "RELEASE SETUP HOLD ONLY: outputs remain disarmed. Review all remaining differences and PARTIAL/UNKNOWN receipts before release. This does not certify an unfinished recall. Output rearm and Brain monitor arm remain separate explicit actions.".into();}
             if d.kind=="pa_set" {return format!("{}\nMUTED WHOLE PA CONFIGURATION / revision {} / program buses {} / explicit rearm remains separate\n{}",d.measurement_review.as_deref().unwrap_or("Manual configuration"),d.revision,d.body["program_buses"],d.body["configuration_json"].as_str().and_then(|s|serde_json::from_str::<Value>(s).ok()).and_then(|v|serde_json::to_string_pretty(&v).ok()).unwrap_or_default());}
             if d.kind=="device_configure" {return format!("DEVICE CONFIGURATION / revision {} / separate rearm required\n{}",d.revision,serde_json::to_string_pretty(&d.body["config"]).unwrap_or_default());}
             if d.kind == "processing_set" {
@@ -447,6 +453,17 @@ impl Operator {
         }
         let tag: Contract = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
         if tag.contract.as_deref() == Some("GP05-modules") {
+            let document = crate::provider::StrictDocument::parse(bytes)?;
+            if document.value().get("available").is_some() {
+                // An unpaired health reply is not a recorder command completion
+                // or fresh readback. Validate its identity, then discard it.
+                crate::recorder::Observation::decode(
+                    document.value(),
+                    &self.session.snapshot_request().context.show_id,
+                    &self.session.snapshot_request().context.epoch,
+                )?;
+                return Ok(true);
+            }
             self.record_reply(&crate::provider::parse_document(bytes)?)?;
             return Ok(true);
         }
@@ -1781,8 +1798,12 @@ impl Operator {
         if trace {
             eprintln!("GP14 pair raw_sent_us={}", started.elapsed().as_micros());
         }
+        let mut query = self.session.structural_request();
+        if self.setup_probe {
+            query.kind = "setup_snapshot".into();
+        }
         self.transport
-            .send_frame_until(&self.session.structural_request().encode()?, deadline)?;
+            .send_frame_until(&query.encode()?, deadline)?;
         if trace {
             eprintln!(
                 "GP14 pair sent elapsed_us={}",
@@ -2423,6 +2444,9 @@ impl Operator {
             .draft
             .take()
             .ok_or("no confirmation draft; held/repeated confirm refused")?;
+        if matches!(d.kind.as_str(), "setup_preview" | "setup_restore") {
+            return self.confirm_setup(d);
+        }
         if d.kind == "fx_saved_preview" {
             return Err("Incompatible saved FX: preview only; restore unavailable".into());
         }

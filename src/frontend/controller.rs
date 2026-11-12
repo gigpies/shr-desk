@@ -566,6 +566,71 @@ impl Frontend {
             Action::SendTap(crate::sends::Tap::ProcessedPostFader),
         );
         for (label, a) in [
+            (
+                "Audio setup: previous slot",
+                crate::setup_saved::Action::Slot(-1),
+            ),
+            (
+                "Audio setup: next slot",
+                crate::setup_saved::Action::Slot(1),
+            ),
+            (
+                "Audio setup: save / replace selected slot",
+                crate::setup_saved::Action::Save,
+            ),
+            (
+                [
+                    "Audio setup 1/16: load and review",
+                    "Audio setup 2/16: load and review",
+                    "Audio setup 3/16: load and review",
+                    "Audio setup 4/16: load and review",
+                    "Audio setup 5/16: load and review",
+                    "Audio setup 6/16: load and review",
+                    "Audio setup 7/16: load and review",
+                    "Audio setup 8/16: load and review",
+                    "Audio setup 9/16: load and review",
+                    "Audio setup 10/16: load and review",
+                    "Audio setup 11/16: load and review",
+                    "Audio setup 12/16: load and review",
+                    "Audio setup 13/16: load and review",
+                    "Audio setup 14/16: load and review",
+                    "Audio setup 15/16: load and review",
+                    "Audio setup 16/16: load and review",
+                ][self.setup_slot],
+                crate::setup_saved::Action::Review,
+            ),
+            (
+                "Audio setup: hold all outputs (PA scope)",
+                crate::setup_saved::Action::Hold,
+            ),
+            (
+                "Audio setup: restore current scope",
+                crate::setup_saved::Action::Restore,
+            ),
+            (
+                "Audio setup: verify all saved settings",
+                crate::setup_saved::Action::Verify,
+            ),
+            (
+                "Audio setup: release hold, keep disarmed (PA)",
+                crate::setup_saved::Action::ReleaseHold,
+            ),
+        ] {
+            add(label, Action::Setup(a));
+        }
+        add(
+            "Control output routes",
+            Action::SwitchScope("output_routes".into()),
+        );
+        add(
+            "Control operator monitor",
+            Action::SwitchScope("local_operator_monitor".into()),
+        );
+        add(
+            "Control talkback settings",
+            Action::SwitchScope("talkback_destinations".into()),
+        );
+        for (label, a) in [
             ("FX auxes", crate::fx_aux::Action::Open),
             ("Probe saved FX support", crate::fx_aux::Action::SavedProbe),
             (

@@ -178,4 +178,5 @@ IDs must match the same show and approved owner. Physical monitor/device identit
 is not represented by the producer's generated logical monitor names.
 [Saved contract](CONTROL_CONTRACT.md#saved-four-aux-intent) and
 [GP-SHOW](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-show--audio-scenes-and-operator-recovery)
-define compatibility, validation and remaining scene work.
+define FX-only compatibility and validation. For complete audio setups, use
+[Save and restore an audio setup](USING.md#save-and-restore-an-audio-setup).

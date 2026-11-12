@@ -463,6 +463,11 @@ fn worker(
                 && !matches!(
                     r.operation,
                     Operation::InputReleased
+                        | Operation::Setup(
+                            crate::setup_saved::Operation::Save(..)
+                                | crate::setup_saved::Operation::Review(..)
+                                | crate::setup_saved::Operation::Verify(..)
+                        )
                         | Operation::Record(crate::recorder::Operation::Probe)
                         | Operation::Fx(crate::fx::Operation::Probe)
                         | Operation::FxAux(
@@ -617,6 +622,7 @@ fn worker(
                         status: format!(
                             "PENDING {}; awaiting provider confirmation",
                             match &r.operation {
+                                Operation::Setup(_) => "audio setup",
                                 Operation::EnableLiveEq => "live EQ probe",
                                 Operation::ReviewLiveEq(_) => "live EQ review",
                                 Operation::Record(_) => "REC actual owner",
@@ -720,6 +726,16 @@ fn worker(
                         return Err("input context changed; intent discarded".into());
                     }
                     match r.operation {
+                        Operation::Setup(command) => {
+                            let review_request =
+                                !matches!(command, crate::setup_saved::Operation::Save(..));
+                            o.setup_operation(command)?;
+                            if review_request {
+                                serial = serial.checked_add(1).ok_or("review exhausted")?;
+                                review = Some((serial, o.reviewed().unwrap_or_default()));
+                            }
+                            Ok(())
+                        }
                         Operation::Record(command) => {
                             record_enabled = true;
                             match command {
