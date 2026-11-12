@@ -7,6 +7,7 @@ pub enum Command {
     Dynamics(crate::controller_flow::Dynamics),
     GateMode(crate::gate::Mode),
     GateImport,
+    GatePreparation(crate::frontend::gate_preparation::Command),
     SelectTarget(crate::controller_flow::Target),
     KeybedBank(i32),
     Rotary {

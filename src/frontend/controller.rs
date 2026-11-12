@@ -24,6 +24,9 @@ impl Frontend {
     }
 
     pub fn import_gate_proposal(&mut self, bytes: &[u8]) -> Result<(), String> {
+        if self.gate_preparation.guarded {
+            return Err("cancel existing prepared gate draft/review first".into());
+        }
         if !self.processing_ready() || self.state.as_ref().is_some_and(|u| u.review.is_some()) {
             return Err("gate import requires fresh processing and no review".into());
         }
@@ -76,6 +79,7 @@ impl Frontend {
 
     pub(super) fn console_command(&mut self, command: C) -> Result<(), String> {
         match command {
+            C::GatePreparation(c) => self.gate_command(c),
             C::Dynamics(mode) => {
                 self.dynamics_mode = mode;
                 self.controller_surface.lost();
@@ -83,6 +87,9 @@ impl Frontend {
             }
 
             C::GateMode(mode) => {
+                if self.gate_preparation.guarded {
+                    return Err("prepared settings are frozen; cancel before changing mode".into());
+                }
                 if self.processing_draft.is_none() {
                     self.action(Action::ProcessingEdit)?;
                 }
@@ -288,6 +295,9 @@ impl Frontend {
             C::EntryAppend(text) => self.controller_text(Some(&text)),
             C::EntryBackspace => self.controller_text(None),
             C::EntryAccept => {
+                if self.gate_preparation.open {
+                    return self.gate_command(super::gate_preparation::Command::Add);
+                }
                 if self.gate_import {
                     return self.console_command(C::GateImport);
                 }
@@ -341,6 +351,11 @@ impl Frontend {
         }
     }
     fn controller_text(&mut self, text: Option<&str>) -> Result<(), String> {
+        if self.gate_preparation.open {
+            return self.gate_command(super::gate_preparation::Command::Text(
+                text.unwrap_or("\u{8}").into(),
+            ));
+        }
         if text.is_some_and(|s| s.len() > 128 || !s.bytes().all(|c| (32..=126).contains(&c))) {
             return Err("printable entry capacity128".into());
         }
@@ -422,7 +437,9 @@ impl Frontend {
             .or(self.send_entry.as_deref())
             .or(self.device_entry.as_deref())
             .or(self.fx_ui.text.as_deref())
-            .unwrap_or(if self.measurement_ui.editor.is_some() {
+            .unwrap_or(if self.gate_preparation.open {
+                &self.gate_preparation.text
+            } else if self.measurement_ui.editor.is_some() {
                 &self.measurement_ui.text
             } else {
                 &self.processing_entry
@@ -461,6 +478,23 @@ impl Frontend {
         };
         let mut items = Vec::new();
         let mut add = |label, action| items.push(Item::new(label, action));
+        if self.gate_preparation.open {
+            use super::gate_preparation::Command as G;
+            for (label, command) in [
+                ("Previous evidence field", G::Field(-1)),
+                ("Next evidence field", G::Field(1)),
+                ("Accept path / label", G::Add),
+                ("Clear selected field", G::Clear),
+                ("Prepare recorded evidence", G::Start),
+                ("Cancel preparation", G::Cancel),
+                ("Use result in local draft", G::Use),
+            ] {
+                add(label, Action::Console(C::GatePreparation(command)));
+            }
+            add("Close / discard preparation", Action::Cancel);
+            return items;
+        }
+
         if self.state.as_ref().is_some_and(|s| s.review.is_some()) {
             add("Previous review page", Action::Console(C::ReviewPage(-1)));
             add("Next review page", Action::Console(C::ReviewPage(1)));
@@ -501,6 +535,10 @@ impl Frontend {
         add(
             "Gate tom",
             Action::Console(C::GateMode(crate::gate::Mode::Tom)),
+        );
+        add(
+            "Gate recorded soundcheck",
+            Action::Console(C::GatePreparation(super::gate_preparation::Command::Open)),
         );
         add(
             "Gate automatic import",

@@ -230,6 +230,7 @@ fn worker(
     let mut g = generation.load(Ordering::Acquire);
     let mut serial = 0u64;
     let mut review: Option<(u64, String)> = None;
+    let mut gate_evidence: Option<(u64, Vec<crate::gate_job::EvidenceFile>)> = None;
     let mut status = "provider unavailable; read-only attach".to_string();
     let mut operation_error: Option<String> = None;
     let mut last_operation: Option<String> = None;
@@ -637,7 +638,8 @@ fn worker(
                                 Operation::EnableBrain => "Brain capability probe",
                                 Operation::BrainPress(_) => "talkback press",
                                 Operation::ReviewBrain { .. } => "Brain configuration review",
-                                Operation::ReviewProcessing { .. } => "processing review",
+                                Operation::ReviewProcessing { .. }
+                                | Operation::ReviewPreparedGate { .. } => "processing review",
                                 Operation::ReviewStructure { .. } => "structural review",
                                 Operation::Grant => "writer grant",
                                 Operation::ReleaseWriter => "writer release",
@@ -687,6 +689,7 @@ fn worker(
                     | Operation::ReviewStructure { .. }
                     | Operation::ReviewLiveEq(_)
                     | Operation::ReviewTap(_)
+                    | Operation::ReviewPreparedGate { .. }
                     | Operation::ReviewProcessing { .. }
                     | Operation::ReviewSet { .. }
                     | Operation::Preview(_)
@@ -878,6 +881,22 @@ fn worker(
                             review = Some((serial, o.reviewed().unwrap_or_default()));
                             Ok(())
                         }
+                        Operation::ReviewPreparedGate {
+                            input,
+                            config,
+                            files,
+                        } => {
+                            if !(32..=128).contains(&files.len())
+                                || !files.iter().all(crate::gate_job::EvidenceFile::unchanged)
+                            {
+                                return Err("gate evidence changed before review".into());
+                            }
+                            o.stage("processing_set", json!({"input": input, "config": config}))?;
+                            serial = serial.checked_add(1).ok_or("review counter exhausted")?;
+                            gate_evidence = Some((serial, files));
+                            review = Some((serial, o.reviewed().unwrap_or_default()));
+                            Ok(())
+                        }
                         Operation::ReviewProcessing { input, config } => {
                             o.stage("processing_set", json!({"input": input, "config": config}))?;
                             serial = serial.checked_add(1).ok_or("review counter exhausted")?;
@@ -959,6 +978,14 @@ fn worker(
                         Operation::Confirm(id) => {
                             if review.as_ref().is_none_or(|(n, _)| *n != id) {
                                 return Err("confirmation was not reviewed".into());
+                            }
+                            if let Some((guard_id, files)) = gate_evidence.take()
+                                && guard_id == id
+                                && !files.iter().all(crate::gate_job::EvidenceFile::unchanged)
+                            {
+                                return Err(
+                                    "gate evidence changed before submission; prepare again".into(),
+                                );
                             }
                             review = None;
                             o.confirm()

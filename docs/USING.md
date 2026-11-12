@@ -48,6 +48,48 @@ a GigPies `gate-prepare` proposal and shows its confidence/reason. It fills a lo
 draft; review it before applying. An uncertain proposal stays bypassed. Prepared
 settings remain fixed during performance.
 
+### Prepare from recorded soundcheck cues
+
+Select the intended input channel, then press **O** in Channel, or choose **Gate recorded
+soundcheck** in the **F10** controller menu. This uses an installed GigPies executable
+on the Desk machine for offline analysis; it opens no audio device. Enter its
+absolute path in the first field. The normal workflow needs no JSON editing.
+
+Use **Tab/Up/Down** to choose a field, type its value, and **Enter** to accept it.
+Give calibration and held-out evaluation distinct labels. In each of the four
+cue groups, add absolute WAV paths individually or select a directory containing
+only that group's cues. Directory selection adds its WAV files, nonrecursively;
+inspect the selected names before preparing. **Left/Right** shows an individual
+cue path, **F9** removes it, and **Delete** clears the selected field/group.
+
+Each group needs 8–32 independent mono 48 kHz PCM16/24/32 WAVs: calibration target
+hits, calibration non-target bleed, held-out target hits and held-out bleed.
+Each hit must include its full decay. Files must end on complete 10 ms windows,
+last no longer than 40.96 seconds, and be at most 8 MiB. These labels assert known
+pre-gate source identity; an arbitrary mixed recording cannot substitute for an
+isolated target cue. Copies of the same decoded audio are rejected, even under
+different filenames. Do not select accepted mixes or post-gate recordings.
+
+**F6** starts preparation, with cue progress and a two-minute work limit. **F7**
+cancels the read-only job; **Esc** cancels and closes. A stopped job must release
+its process before another starts. File changes, missing files, unsupported WAVs
+or a failed GigPies process show an error and create no applicable result.
+
+Inspect separation, detector, threshold/timing, confidence, held-out missed hits,
+false openings and energy preservation. Refused evidence produces bypass, never
+an enabled guess. Evaluation does not retune the calibration-selected settings.
+**F8** transfers the result to a frozen local draft. **F4** opens the full
+current-versus-proposed review, including evidence; read all pages and press
+**Enter** separately to apply. Changed files or stale channel/provider context
+require cancellation and fresh preparation. Reconnect never replays a job or
+applies a proposal. Cancel the draft to return to manual editing.
+
+Wait for correlated completion and settled authoritative readback. Then use
+[Audio setup Save/Restore](#save-and-restore-an-audio-setup) to save the resulting
+stable gate settings with the rest of the setup. Cue paths, preparation jobs,
+grants and execution state are not saved. Physical acquisition, playback and
+listening qualification remain separate.
+
 The four EQ frequency/gain pairs occupy the left side; compressor controls are
 in the middle; pan and level are on the right. Blue marks selection and amber
 marks a local draft. A draft is not the current engine setting.

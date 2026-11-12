@@ -3,6 +3,7 @@
 mod controller;
 mod fx;
 mod fx_aux;
+pub mod gate_preparation;
 mod keybed;
 #[cfg(test)]
 mod master_tests;
@@ -91,6 +92,11 @@ pub enum Operation {
         body: Value,
     },
     EnableProcessing,
+    ReviewPreparedGate {
+        input: String,
+        config: crate::processing::Config,
+        files: Vec<crate::gate_job::EvidenceFile>,
+    },
     ReviewProcessing {
         input: String,
         config: crate::processing::Config,
@@ -373,6 +379,7 @@ pub struct Frontend {
     pub processing_field: usize,
     pub processing_entry: String,
     pub gate_import: bool,
+    pub gate_preparation: gate_preparation::Preparation,
     pub page: Page,
     pub width: u32,
     pub height: u32,
@@ -458,6 +465,7 @@ impl Frontend {
             processing_field: 0,
             processing_entry: String::new(),
             gate_import: false,
+            gate_preparation: Default::default(),
             page: Page::Mix,
             width: 1920,
             height: 1080,
@@ -557,6 +565,7 @@ impl Frontend {
         self.fence_local();
     }
     fn fence_local(&mut self) {
+        self.gate_preparation.fence();
         self.stop_master_motion();
         self.controller_surface.lost();
         self.fx_ui.basis = None;
@@ -662,6 +671,7 @@ impl Frontend {
         Ok(())
     }
     pub fn pump(&mut self) {
+        self.gate_poll();
         if self.ptt_pressed && self.focused && self.device_ready {
             self.provider.brain_signal.pulse();
         }
@@ -954,7 +964,8 @@ impl Frontend {
                             && self.send_draft.is_none()
                             && self.exact_draft.is_none()
                             && self.fx_ui.text.is_none()
-                            && self.measurement_ui.editor.is_none())
+                            && self.measurement_ui.editor.is_none()
+                            && !self.gate_preparation.open)
                             || opens_editor)
                     {
                         let _ = self.provider.send(None, Operation::InputReleased);
@@ -978,7 +989,8 @@ impl Frontend {
                             && self.send_draft.is_none()
                             && self.exact_draft.is_none()
                             && self.fx_ui.text.is_none()
-                            && self.measurement_ui.editor.is_none())
+                            && self.measurement_ui.editor.is_none()
+                            && !self.gate_preparation.open)
                             || (self.fx_ui.text.is_none()
                                 && self.measurement_ui.editor.is_none()
                                 && matches!(
@@ -1178,6 +1190,15 @@ impl Frontend {
         Ok(())
     }
     fn key(&mut self, key: &str) -> Result<(), String> {
+        if self.gate_preparation.open {
+            return self.gate_key(key);
+        }
+        if self.channel_panel_visible()
+            && self.processing_draft.is_none()
+            && matches!(key, "O" | "o")
+        {
+            return self.gate_command(gate_preparation::Command::Open);
+        }
         if self.gate_import && self.processing_draft.is_some() {
             match key {
                 "Esc" | "Escape" => {
@@ -1753,6 +1774,14 @@ impl Frontend {
     }
     fn action(&mut self, action: Action) -> Result<(), String> {
         self.stop_master_motion();
+        if self.gate_preparation.guarded
+            && matches!(
+                action,
+                Action::ProcessingAdjust(_) | Action::ProcessingText(_)
+            )
+        {
+            return Err("prepared settings are frozen; cancel before manual editing".into());
+        }
         if let Action::Console(command) = action {
             return self.console_command(command);
         }
@@ -2577,6 +2606,7 @@ impl Frontend {
                     .adjust(crate::processing::FIELDS[self.processing_field], delta)
             }
             Action::ProcessingApply => {
+                self.gate_guard()?;
                 if !self.processing_entry.is_empty() {
                     return Err("Enter accepts numeric entry before Apply".into());
                 }
@@ -2599,10 +2629,19 @@ impl Frontend {
                         "retained draft input changed; select its original input or cancel".into(),
                     );
                 }
-                self.send(Operation::ReviewProcessing {
-                    input: d.input,
-                    config: d.config,
-                })?;
+                let operation = if self.gate_preparation.guarded {
+                    Operation::ReviewPreparedGate {
+                        input: d.input,
+                        config: d.config,
+                        files: self.gate_preparation.files.clone(),
+                    }
+                } else {
+                    Operation::ReviewProcessing {
+                        input: d.input,
+                        config: d.config,
+                    }
+                };
+                self.send(operation)?;
                 self.processing_draft = None;
                 self.gate_import = false;
                 self.processing_entry.clear();
@@ -2684,6 +2723,7 @@ impl Frontend {
                 })
             }
             Action::Confirm => {
+                self.gate_guard()?;
                 if let Some(d) = &self.exact_draft
                     && (!d.review_requested
                         || d.confirmation_requested
@@ -2705,12 +2745,17 @@ impl Frontend {
                     .map(|(id, _)| *id)
                     .ok_or("no displayed reviewed confirmation")?;
                 self.send(Operation::Confirm(id))?;
+                if self.gate_preparation.guarded {
+                    self.gate_preparation.submitted = true;
+                }
                 if let Some(d) = &mut self.exact_draft {
                     d.confirmation_requested = true;
                 }
                 Ok(())
             }
             Action::Cancel | Action::Back => {
+                self.gate_command(gate_preparation::Command::Cancel)?;
+                self.gate_preparation.open = false;
                 if self.state.as_ref().is_none_or(|s| s.review.is_none()) {
                     self.fx_aux_ui.open = false;
                 }
@@ -2944,24 +2989,33 @@ impl Frontend {
         self.review_lines().len().div_ceil(32).max(1)
     }
     fn review_lines(&self) -> Vec<String> {
-        self.state
+        let mut text = self
+            .state
             .as_ref()
             .and_then(|s| s.review.as_ref())
-            .map_or_else(Vec::new, |(_, text)| {
-                text.split('\n')
-                    .flat_map(|line| {
-                        let chars: Vec<_> = line.chars().collect();
-                        chars
-                            .chunks(156)
-                            .map(|c| c.iter().collect())
-                            .collect::<Vec<String>>()
-                    })
-                    .collect()
+            .map_or_else(String::new, |(_, text)| text.clone());
+        if self.gate_preparation.guarded {
+            text.push_str("\nGATE EVIDENCE / frozen calibration-only selection\n");
+            text.push_str(&format!(
+                "Calibration: {} / Held-out: {}\n",
+                self.gate_preparation.calibration, self.gate_preparation.evaluation
+            ));
+            text.push_str(&self.gate_preparation.report.join("\n"));
+        }
+        text.split('\n')
+            .flat_map(|line| {
+                line.chars()
+                    .collect::<Vec<_>>()
+                    .chunks(156)
+                    .map(|c| c.iter().collect())
+                    .collect::<Vec<String>>()
             })
+            .collect()
     }
     /// Called after an actual renderer submission, never just by input polling.
     pub fn mark_presented(&mut self) {
         if !self.controller_surface.open
+            && !self.gate_preparation.open
             && self.device_ready
             && self.width > 0
             && self.height > 0
@@ -3182,6 +3236,7 @@ impl Frontend {
     /// Dedicated channel layout must never obscure a modal or mark it reviewed.
     pub fn channel_panel_visible(&self) -> bool {
         !self.controller_surface.open
+            && !self.gate_preparation.open
             && self.page == Page::Channel
             && self.scope == "foh"
             && !self.meter_page
@@ -3227,6 +3282,9 @@ impl Frontend {
     pub fn scene(&self) -> Scene {
         if self.controller_surface.open {
             return self.controller_scene();
+        }
+        if self.gate_preparation.open {
+            return self.gate_scene();
         }
         let mut scene = Scene::default();
         scene.primitives.push(Primitive::Rect {

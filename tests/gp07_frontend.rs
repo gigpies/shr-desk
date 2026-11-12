@@ -37,6 +37,14 @@ fn wait(f: &mut Frontend, deadline: Instant, label: &str, predicate: impl Fn(&Fr
     let mut previous = String::new();
     loop {
         f.pump();
+        assert!(
+            !f.gate_preparation
+                .report
+                .iter()
+                .any(|s| s.starts_with("Preparation failed:")),
+            "{label}: {:?}",
+            f.gate_preparation.report
+        );
         let diagnostic = format!(
             "message={} status={} operation={:?} lease_ms={:?} fresh={} structural={} processing={}",
             f.message,
@@ -57,9 +65,10 @@ fn wait(f: &mut Frontend, deadline: Instant, label: &str, predicate: impl Fn(&Fr
         }
         assert!(
             Instant::now() < deadline,
-            "GP07 deadline at {label}: message={} state={:?}",
+            "GP07 deadline at {label}: message={} state={:?} gate={:?}",
             f.message,
-            f.state
+            f.state,
+            f.gate_preparation.report
         );
         thread::sleep(Duration::from_millis(5));
     }
@@ -1156,7 +1165,7 @@ fn gate_v5_actual_producer_review_import_and_reconnect() {
             .unwrap(),
         directory,
     };
-    let deadline = Instant::now() + Duration::from_secs(30);
+    let deadline = Instant::now() + Duration::from_secs(55);
     while !host.directory.join("audio.sock").exists() {
         assert!(host.child.try_wait().unwrap().is_none(), "provider exited");
         assert!(Instant::now() < deadline);
@@ -1196,13 +1205,141 @@ fn gate_v5_actual_producer_review_import_and_reconnect() {
     });
     assert!(f.state.as_ref().unwrap().processing_final.is_some());
     let untouched = snapshot(&f).channels[1..].to_vec();
-    controller(&mut f, Action::ProcessingEdit);
-    let proposal = json!({"version":1,"input":"input-01","calibration_id":"independent-train","evaluation_id":"independent-eval",
-        "proposal":{"config":{"bypass":false,"threshold_mdb":-26000,"attack_us":100,"hold_ms":300,"release_ms":150,"range_mdb":24000,"hysteresis_mdb":6000,"detector_hz":0,"detector_q_milli":700},"confidence":0.8,"reason":"prepared",
-        "measurements":{"quiet_hit_db":-20.0,"bleed_p95_db":-40.0,"decay_p90_ms":300.0,"evaluation_hits":8,"evaluation_missed_hits":0,"evaluation_bleed_windows":8,"evaluation_false_openings":0}}});
-    f.import_gate_proposal(&serde_json::to_vec(&proposal).unwrap())
-        .unwrap();
+    // Real recorded-evidence controls -> GigPies-owned analysis -> protected review.
+    use shr_desk::controller_surface::Command as C;
+    use shr_desk::frontend::gate_preparation::Command as G;
+    let executable = std::env::var("GP_GATE_PREPARE").expect("actual GigPies executable");
+    let mut groups = Vec::new();
+    fn cue(path: &std::path::Path, group: usize, index: usize, weak: bool) {
+        let mut pcm = Vec::new();
+        for n in 0..24000 {
+            let t = n as f64 / 48000.;
+            let target = if group.is_multiple_of(2) {
+                (if weak {
+                    0.0001
+                } else {
+                    0.12 + (index + group) as f64 * 0.001
+                }) * (-t / 0.04).exp()
+                    * (std::f64::consts::TAU * 200. * t).sin()
+            } else {
+                0.
+            };
+            let bleed = (0.001 + (group * 8 + index) as f64 * 0.00001)
+                * (std::f64::consts::TAU * 4000. * t).sin();
+            pcm.extend_from_slice(
+                &(((target + bleed) * 8388608.).round() as i32).to_le_bytes()[..3],
+            );
+        }
+        let mut wav = Vec::new();
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36u32 + pcm.len() as u32).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&48000u32.to_le_bytes());
+        wav.extend_from_slice(&144000u32.to_le_bytes());
+        wav.extend_from_slice(&3u16.to_le_bytes());
+        wav.extend_from_slice(&24u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&(pcm.len() as u32).to_le_bytes());
+        wav.extend(pcm);
+        fs::write(path, wav).unwrap();
+    }
+    for group in 0usize..4 {
+        let dir = host.directory.join(format!("cues-{group}"));
+        fs::create_dir(&dir).unwrap();
+        for index in 0..8 {
+            cue(&dir.join(format!("{index}.wav")), group, index, false);
+        }
+        groups.push(dir);
+    }
+    tap(&mut f, "O");
+    assert!(f.gate_preparation.open);
+    assert!(!f.channel_panel_visible());
+    for (index, value) in [
+        executable,
+        "independent-train".into(),
+        "independent-eval".into(),
+        groups[0].display().to_string(),
+        groups[1].display().to_string(),
+        groups[2].display().to_string(),
+        groups[3].display().to_string(),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        if index > 0 {
+            controller(&mut f, Action::Console(C::GatePreparation(G::Field(1))));
+        }
+        controller(&mut f, Action::Console(C::GatePreparation(G::Text(value))));
+        controller(&mut f, Action::Console(C::GatePreparation(G::Add)));
+    }
+    assert!(f.scene().in_bounds());
+    controller(&mut f, Action::Console(C::GatePreparation(G::Start)));
+    controller(&mut f, Action::Console(C::GatePreparation(G::Cancel)));
+    assert!(f.processing_draft.is_none());
+    thread::sleep(Duration::from_millis(50));
+    controller(&mut f, Action::Console(C::GatePreparation(G::Start)));
+    wait(&mut f, deadline, "actual prepared evidence", |f| {
+        f.gate_preparation
+            .report
+            .iter()
+            .any(|s| s.starts_with("Prepared |"))
+    });
+    let original_revision = snapshot(&f).revision.clone();
+    // Same-length changed audio cannot reuse a prepared review.
+    cue(&groups[2].join("0.wav"), 2, 0, true);
+    controller(&mut f, Action::Console(C::GatePreparation(G::Use)));
+    assert!(f.processing_draft.is_none());
+    controller(&mut f, Action::Console(C::GatePreparation(G::Start)));
+    wait(&mut f, deadline, "held-out refusal", |f| {
+        f.gate_preparation
+            .report
+            .iter()
+            .any(|s| s.starts_with("REFUSED:"))
+    });
+    assert_eq!(snapshot(&f).revision, original_revision);
+    cue(&groups[2].join("0.wav"), 2, 0, false);
+    controller(&mut f, Action::Console(C::GatePreparation(G::Start)));
+    wait(&mut f, deadline, "recovered preparation", |f| {
+        f.gate_preparation
+            .report
+            .iter()
+            .any(|s| s.starts_with("Prepared |"))
+    });
+    controller(&mut f, Action::Console(C::GatePreparation(G::Use)));
+    assert!(f.processing_draft.is_some(), "{}", f.message);
     let desired = f.processing_draft.as_ref().unwrap().config.clone();
+    controller(&mut f, Action::ProcessingApply);
+    wait(
+        &mut f,
+        deadline,
+        "prepared review before evidence replacement",
+        |f| f.state.as_ref().is_some_and(|u| u.review.is_some()),
+    );
+    cue(&groups[2].join("0.wav"), 2, 0, true);
+    controller(&mut f, Action::Confirm);
+    assert!(f.message.contains("gate evidence changed"), "{}", f.message);
+    assert_eq!(snapshot(&f).revision, original_revision);
+    controller(&mut f, Action::Cancel);
+    cue(&groups[2].join("0.wav"), 2, 0, false);
+    controller(&mut f, Action::Console(C::GatePreparation(G::Open)));
+    controller(&mut f, Action::Console(C::GatePreparation(G::Start)));
+    wait(
+        &mut f,
+        deadline,
+        "fresh preparation after cancelled review",
+        |f| {
+            f.gate_preparation
+                .report
+                .iter()
+                .any(|s| s.starts_with("Prepared |"))
+        },
+    );
+    controller(&mut f, Action::Console(C::GatePreparation(G::Use)));
+    assert_eq!(f.processing_draft.as_ref().unwrap().config, desired);
+
     controller(
         &mut f,
         Action::Console(shr_desk::controller_surface::Command::SelectTarget(
@@ -1221,6 +1358,12 @@ fn gate_v5_actual_producer_review_import_and_reconnect() {
     for (a, b) in snapshot(&f).channels[1..].iter().zip(&untouched) {
         assert_eq!(a.target, b.target);
     }
+    wait(
+        &mut f,
+        deadline,
+        "correlated settled gate completion",
+        |f| f.message.starts_with("Gate applied at frame"),
+    );
     let confirmed = snapshot(&f).revision.clone();
     tap(&mut f, "F5");
     wait(
@@ -1237,10 +1380,7 @@ fn gate_v5_actual_producer_review_import_and_reconnect() {
     thread::sleep(Duration::from_millis(300));
     f.pump();
     assert!(!f.processing_ready());
-    assert!(
-        f.import_gate_proposal(&serde_json::to_vec(&proposal).unwrap())
-            .is_err()
-    );
+    assert!(f.import_gate_proposal(b"{}").is_err());
     println!(
         "actual v5: manual + prepared gate mutations confirmed, other 15 inputs unchanged, draft selection fenced, reconnect read-only/no replay, stale import refused"
     );

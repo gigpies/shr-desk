@@ -96,7 +96,9 @@ and detector Hz/Q; zero Hz disables detector filtering. Compressor retains
 5 threshold/attack, 6 ratio/release, 7 knee/makeup. All edits use existing draft,
 review, permission and generation checks. Gate attenuation/state is separate
 from compressor GR. Dynamic sessions require processing v5 for gate writes.
-The Gate menu offers **Manual**, **Tom** and **Automatic Import**. Manual enables
+The Gate menu offers **Manual**, **Tom**, **Automatic Import** and **Gate recorded soundcheck**.
+The recorded workflow (O in Channel, or the F10 menu) provides labelled WAV selection, preparation,
+cancellation and evidence review; see [recorded soundcheck controls](USING.md#prepare-from-recorded-soundcheck-cues). Manual enables
 the gate with detector filtering disabled. Tom requires a measured nonzero
 frequency set in Detector first; it makes no instrument-specific frequency guess.
 Automatic Import opens an absolute-path entry for a GigPies `gate-prepare` JSON

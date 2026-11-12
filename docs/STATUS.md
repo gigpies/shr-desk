@@ -1,5 +1,17 @@
 # Dated implementation evidence
 
+## 2026-11-12 — recorded gate soundcheck controls
+
+Channel now offers O / Gate recorded soundcheck: independently labelled local
+WAV groups, bounded GigPies-owned preparation, progress/cancellation, measured and
+held-out evidence, frozen review and explicit application with settled readback.
+Changed files are rechecked in both the frontend and command worker. Reconnect
+invalidates preparation; no automatic application occurs. Stable settings use
+Audio setup Save/Restore; jobs and cue paths are not saved. Manual/Tom/import
+remain available. [Operator controls](USING.md#prepare-from-recorded-soundcheck-cues)
+and the [owning GP-GATE card](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-gate--lightweight-channel-gates-and-tom-decay-control)
+contain usage, validation and the separate physical/listening boundaries.
+
 ## 2026-10-30 — gates, controller semantics and keybed
 
 Desk consumes processing v5 with separate gate attenuation/state and compressor

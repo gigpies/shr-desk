@@ -177,6 +177,171 @@ fn actual_setup_stale_review_refuses_before_mutation() {
 fn actual_setup_replaced_file_refuses_before_mutation() {
     episode(3);
 }
+#[test]
+#[ignore = "actual GigPies analysis/provider and PA/FX/REC libraries; recorded-gate save/recall software episode"]
+fn actual_setup_prepared_gate_save_and_recall() {
+    episode(4);
+}
+
+fn prepare_recorded_gate(path: &Path, scenes: &Path) {
+    use super::gate_preparation::Command as G;
+    let mut groups = Vec::new();
+    for group in 0usize..4 {
+        let dir = path.join(format!("gate-cues-{group}"));
+        std::fs::create_dir(&dir).unwrap();
+        for index in 0..8 {
+            let mut pcm = Vec::new();
+            for n in 0..24000 {
+                let t = n as f64 / 48000.;
+                let hit = if group.is_multiple_of(2) {
+                    (0.12 + (index + group) as f64 * 0.001)
+                        * (-t / 0.04).exp()
+                        * (std::f64::consts::TAU * 200. * t).sin()
+                } else {
+                    0.
+                };
+                let bleed = (0.001 + (group * 8 + index) as f64 * 0.00001)
+                    * (std::f64::consts::TAU * 4000. * t).sin();
+                pcm.extend_from_slice(
+                    &(((hit + bleed) * 8388608.).round() as i32).to_le_bytes()[..3],
+                );
+            }
+            let mut wav = Vec::new();
+            wav.extend_from_slice(b"RIFF");
+            wav.extend_from_slice(&(36 + pcm.len() as u32).to_le_bytes());
+            wav.extend_from_slice(b"WAVEfmt ");
+            wav.extend_from_slice(&16u32.to_le_bytes());
+            wav.extend_from_slice(&1u16.to_le_bytes());
+            wav.extend_from_slice(&1u16.to_le_bytes());
+            wav.extend_from_slice(&48000u32.to_le_bytes());
+            wav.extend_from_slice(&144000u32.to_le_bytes());
+            wav.extend_from_slice(&3u16.to_le_bytes());
+            wav.extend_from_slice(&24u16.to_le_bytes());
+            wav.extend_from_slice(b"data");
+            wav.extend_from_slice(&(pcm.len() as u32).to_le_bytes());
+            wav.extend(pcm);
+            std::fs::write(dir.join(format!("{index}.wav")), wav).unwrap();
+        }
+        groups.push(dir);
+    }
+    let mut f = attach(path, scenes, "foh");
+    f.enable_processing().unwrap();
+    wait(&mut f, "gate processing", Frontend::processing_ready);
+    tap(&mut f, "G");
+    wait(&mut f, "gate grant", |f| {
+        f.state.as_ref().is_some_and(|u| u.writer_granted())
+    });
+    f.action(Action::Page(Page::Channel)).unwrap();
+    wait(
+        &mut f,
+        "fresh Channel for gate preparation",
+        Frontend::processing_ready,
+    );
+    f.gate_command(G::Open).unwrap();
+    for (index, value) in [
+        std::env::var("GP_GATE_PREPARE").unwrap(),
+        "calibration".into(),
+        "held-out".into(),
+        groups[0].display().to_string(),
+        groups[1].display().to_string(),
+        groups[2].display().to_string(),
+        groups[3].display().to_string(),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        if index > 0 {
+            f.gate_command(G::Field(1)).unwrap();
+        }
+        f.gate_command(G::Text(value)).unwrap();
+        f.gate_command(G::Add).unwrap();
+    }
+    f.gate_command(G::Start).unwrap();
+    wait(&mut f, "gate prepared", |f| {
+        f.gate_preparation
+            .report
+            .iter()
+            .any(|s| s.starts_with("Prepared |"))
+    });
+    f.gate_command(G::Use).unwrap();
+    tap(&mut f, "F4");
+    wait(&mut f, "gate review for file guard", |f| {
+        f.state.as_ref().is_some_and(|u| u.review.is_some())
+    });
+    let id = f.state.as_ref().unwrap().review.as_ref().unwrap().0;
+    let revision = f
+        .state
+        .as_ref()
+        .unwrap()
+        .processing
+        .as_ref()
+        .unwrap()
+        .revision
+        .clone();
+    let changed = groups[0].join("0.wav");
+    let original = std::fs::read(&changed).unwrap();
+    std::fs::write(&changed, b"changed after frontend confirmation admission").unwrap();
+    // Independently test the worker guard, after UI-side confirmation validation.
+    f.provider
+        .send(Some(revision.clone()), Operation::Confirm(id))
+        .unwrap();
+    wait(&mut f, "worker refused changed gate evidence", |f| {
+        f.state
+            .as_ref()
+            .and_then(|u| u.last_operation.as_deref())
+            .is_some_and(|s| s.contains("gate evidence changed before submission"))
+    });
+    assert_eq!(
+        f.state
+            .as_ref()
+            .unwrap()
+            .processing
+            .as_ref()
+            .unwrap()
+            .revision,
+        revision
+    );
+    f.action(Action::Cancel).unwrap();
+    std::fs::write(&changed, original).unwrap();
+    wait(
+        &mut f,
+        "fresh gate after refusal",
+        Frontend::processing_ready,
+    );
+    f.gate_command(G::Open).unwrap();
+    f.gate_command(G::Start).unwrap();
+    wait(&mut f, "reprepared gate", |f| {
+        f.gate_preparation
+            .report
+            .iter()
+            .any(|s| s.starts_with("Prepared |"))
+    });
+    f.gate_command(G::Use).unwrap();
+    tap(&mut f, "F4");
+    confirm(&mut f);
+    wait(&mut f, "gate correlated and settled", |f| {
+        f.message.starts_with("Gate applied at frame")
+    });
+    assert!(
+        !f.state
+            .as_ref()
+            .unwrap()
+            .processing
+            .as_ref()
+            .unwrap()
+            .channels[0]
+            .current
+            .gate
+            .bypass
+    );
+    f.action(Action::Console(
+        crate::controller_surface::Command::ReleaseWriter,
+    ))
+    .unwrap();
+    wait(&mut f, "gate release", |f| {
+        f.state.as_ref().is_some_and(|s| !s.writer_granted())
+    });
+}
 fn episode(mode: u8) {
     use std::os::unix::fs::PermissionsExt;
     let root = std::env::temp_dir().join(format!("desk-complete-setup-{}", std::process::id()));
@@ -195,6 +360,9 @@ fn episode(mode: u8) {
         std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
     let mut host = Host::start(&path, 9);
+    if mode == 4 {
+        prepare_recorded_gate(&path, &scenes);
+    }
     let mut o = op(&path, "foh", "configure-foh");
     let mut desired = o.capture_setup().unwrap();
     for e in &mut desired.composed.engine.parameters {
@@ -287,6 +455,24 @@ fn episode(mode: u8) {
         })
     });
     let saved = Saved::load(&scenes, 0).unwrap();
+    if mode == 4 {
+        let value = serde_json::to_value(&saved).unwrap();
+        let text = value.to_string();
+        for forbidden in [
+            "calibration",
+            "held-out",
+            "gate-cues",
+            "grant",
+            "job",
+            "execution",
+        ] {
+            assert!(
+                !text.contains(forbidden),
+                "saved execution state: {forbidden}"
+            );
+        }
+        assert!(!saved.composed.engine.processing[0].gate.bypass);
+    }
     assert!(
         desired.steps(&saved).unwrap().is_empty(),
         "{}",
