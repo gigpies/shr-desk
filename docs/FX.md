@@ -5,7 +5,8 @@
 Open **Menu → FX auxes**. Select an input in Mix, then set its send to FX1,
 FX2, FX3 or FX4. Each aux has its own effect, a Main-only wet return and an independent wet return
 to each configured monitor when the provider supports return routing. Sends follow
-channel fader, mute and pan; they start at zero. Monitor buses remain separate,
+channel mute and pan; they start at zero and default to post-fader. On a capable
+provider, each input/aux send can independently select pre-fader. Monitor buses remain separate,
 with their existing pre/post send choices and physical outputs.
 
 The current provider offers digital delay, room, small room, chamber, plate,
@@ -24,8 +25,13 @@ On the FX aux page, **[ / ]** selects an aux, **A / D** chooses an effect,
 **Up / Down** chooses a field, and **− / +** changes its value. Fields are the
 selected input's send, effect time, amount, damping/tone, rate/tune, shared wet-processing gain,
 BPM, note division and rhythmic modifier, followed by Main-only return and
-each configured monitor return. Up/Down traverses the complete configured list;
-the visible monitor window follows selection. Zero monitors leaves only Main. **W** probes and **X** selects the FX
+each configured monitor return, then **Send tap** when supported. At Send tap,
+**− selects Pre** and **+ selects Post** for the selected input and aux; review
+and confirm as usual. Pre uses channel processing and mute but ignores the fader,
+so lowering the channel fader leaves the aux active. Mute still stops excitation.
+The fader floor is -60 dB, not exact digital silence. Tap changes ramp over 5 ms
+and do not clear the effect tail. Up/Down traverses the complete configured list;
+the visible monitor window follows selection. Zero monitors removes the monitor-return fields. **W** probes and **X** selects the FX
 scope. Send and host-return levels are linear 0..1, adjusted in 5% steps. Delay time and reverb predelay are
 milliseconds. Algorithm-specific ranges/defaults come from the provider:
 reverb amount is normalized decay and higher damping is darker; exciter amount
@@ -56,7 +62,8 @@ folded to mono as `(L + R) / 2`. Opposite-polarity wet channels can cancel.
 Bypass and clear-tail act on that one shared owner, not separate monitor effects.
 Editing an effect, input send, tempo or another return preserves untouched routes.
 
-**W** opts into independent return readback. A failed read remains an error and
+**W** opts into independent return and send-tap readback. The tap selector is
+unavailable without explicit provider capability. A failed read remains an error and
 does not establish legacy support. On an older provider, explicitly reconnect
 read-only if the connection closed, then choose **L / Read legacy FX**. This
 requests the original palette/send contract and leaves independent routing clearly
@@ -180,3 +187,8 @@ is not represented by the producer's generated logical monitor names.
 [GP-SHOW](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-show--audio-scenes-and-operator-recovery)
 define FX-only compatibility and validation. For complete audio setups, use
 [Save and restore an audio setup](USING.md#save-and-restore-an-audio-setup).
+
+Pre/post choices are included in saved FX intent v2. Earlier v1 scenes restore
+post-fader sends explicitly. Restoring v2 requires a provider advertising send-tap
+support. A legacy FX read refuses while pre-fader sends are active rather than
+showing misleading post-fader state.

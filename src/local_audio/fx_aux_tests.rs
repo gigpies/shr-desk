@@ -275,7 +275,10 @@ fn malformed_and_transport_failures_never_become_legacy_support_or_mutation_prob
         assert!(o.session.fx_aux.receipt.is_none());
         let sent = sent.lock().unwrap();
         assert_eq!(sent.len(), 2);
-        assert_eq!(sent[1]["body"], json!({"return_routing":true}));
+        assert_eq!(
+            sent[1]["body"],
+            json!({"return_routing":true,"send_taps":true})
+        );
     }
     let (mut o, sent, _) = operator(Mode::Applied);
     o.legacy_fx_aux().unwrap();

@@ -85,3 +85,31 @@ fn saved_file_replace_and_bounded_corruption() {
     std::fs::write(path.join("fx-scene-01.json"), b"{truncated").unwrap();
     assert!(fx_saved::load(&path, 0).is_err());
 }
+
+#[test]
+fn pre_post_taps_survive_save_and_legacy_restore_migrates_to_explicit_post() {
+    let mut s = snapshot();
+    let legacy = fx_saved::capture(&s).unwrap();
+    s["send_taps_version"] = json!(1);
+    for bus in s["buses"].as_array_mut().unwrap() {
+        let mut c = fx_aux::configuration(bus["configuration_json"].as_str().unwrap()).unwrap();
+        c["send_taps"] = json!(vec!["pre_fader"; c["sends"].as_array().unwrap().len()]);
+        bus["configuration_json"] = json!(c.to_string());
+    }
+    let saved = fx_saved::capture(&s).unwrap();
+    assert_eq!(saved["version"], 2);
+    fx_saved::decode(&serde_json::to_vec(&saved).unwrap()).unwrap();
+    let old = fx_saved::mutation(&legacy, &s).unwrap();
+    for edit in fx_saved::edits(&old).unwrap() {
+        let c = fx_aux::configuration(edit["configuration_json"].as_str().unwrap()).unwrap();
+        assert!(
+            c["send_taps"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|v| v == "post_fader")
+        );
+    }
+    s.as_object_mut().unwrap().remove("send_taps_version");
+    assert!(fx_saved::compatible(&saved, &s).is_err());
+}

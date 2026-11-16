@@ -3,7 +3,8 @@
 Read README.md, docs/STATUS.md, docs/BLUEPRINT.md and the relevant owning document
 before changing code. Follow ../AGENTS.md for peer coordination. This is the
 GigPies Brain operator surface, not a mixer, automixer, PA, FX or recorder engine.
-Keep existing sibling projects read-only without explicit authorization.
+Work across the GigPies module repositories as needed for the authorized feature,
+keeping each implementation in its owning module and preserving unrelated work.
 
 Rust 1.97.1, edition 2024, checked-in Cargo.lock; no sibling path dependencies.
 Use CARGO_INCREMENTAL=0 and the normal target directory. Check free space before

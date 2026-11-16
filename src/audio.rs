@@ -698,6 +698,8 @@ impl Request {
             } else if self.body != json!({})
                 && self.body != json!({"return_routing":true})
                 && self.body != json!({"return_routing":true,"saved_intent":true})
+                && self.body != json!({"return_routing":true,"send_taps":true})
+                && self.body != json!({"return_routing":true,"saved_intent":true,"send_taps":true})
             {
                 return fail("FX aux read body");
             }

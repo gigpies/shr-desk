@@ -196,3 +196,38 @@ fn saved_controls_use_semantic_menu_keyboard_and_rendered_slot_selection() {
     assert!(rx.try_recv().is_err());
     assert!(f.scene().in_bounds());
 }
+
+#[test]
+fn pre_post_send_choice_reviews_only_selected_input_and_preserves_other_routes() {
+    let (mut f, rx) = surface(Some(3));
+    let u = f.state.as_mut().unwrap();
+    let s = u.fx_aux.snapshot.as_mut().unwrap();
+    s["send_taps_version"] = json!(1);
+    for bus in s["buses"].as_array_mut().unwrap() {
+        let mut c =
+            crate::fx_aux::configuration(bus["configuration_json"].as_str().unwrap()).unwrap();
+        c["send_taps"] = json!(vec!["post_fader"; c["sends"].as_array().unwrap().len()]);
+        bus["configuration_json"] = json!(c.to_string());
+    }
+    let original = s.clone();
+    crate::fx_aux::snapshot(original.clone()).unwrap();
+    f.fx_aux_ui.field = 13;
+    f.key("-").unwrap();
+    let r = rx.try_recv().unwrap();
+    let Operation::FxAux(crate::fx_aux::Operation::Review(body)) = r.operation else {
+        panic!()
+    };
+    let c = crate::fx_aux::configuration(body["configuration_json"].as_str().unwrap()).unwrap();
+    let mut expected =
+        crate::fx_aux::configuration(original["buses"][0]["configuration_json"].as_str().unwrap())
+            .unwrap();
+    expected["send_taps"][f.selected] = json!("pre_fader");
+    assert_eq!(c, expected);
+    assert!(text(&f).contains("Send tap"));
+    assert_eq!(
+        f.state.as_ref().unwrap().fx_aux.snapshot.as_ref().unwrap(),
+        &original
+    );
+    f.key("Down").unwrap();
+    assert_eq!(f.fx_aux_ui.field, 0);
+}

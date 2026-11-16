@@ -53,6 +53,9 @@ impl State {
         }
         if let Some(text) = body["configuration_json"].as_str() {
             let c = configuration(text)?;
+            if c.get("send_taps").is_some() && s["send_taps_version"] != 1 {
+                return Err("FX send tap selection unavailable".into());
+            }
             match s["monitors"].as_array() {
                 Some(monitors) => validate_returns(&c["returns"], Some(monitors.len()))?,
                 None if c.get("returns").is_some() => return Err("FX routing unavailable".into()),
@@ -120,6 +123,15 @@ pub fn configuration(text: &str) -> Result<Value, String> {
     if let Some(r) = v.get("returns") {
         keys.push("returns");
         validate_returns(r, None)?;
+    }
+    if let Some(taps) = v.get("send_taps") {
+        keys.push("send_taps");
+        if taps.as_array().is_none_or(|a| {
+            Some(a.len()) != v["sends"].as_array().map(Vec::len)
+                || a.iter().any(|t| t != "pre_fader" && t != "post_fader")
+        }) {
+            return Err("FX send tap shape/value".into());
+        }
     }
     crate::provider::keys(&v, &keys)?;
     if !v["tempo"].is_null() {
@@ -200,6 +212,12 @@ pub fn snapshot(v: Value) -> Result<Value, String> {
             "palette_json",
             "capabilities_json",
         ]);
+    }
+    if v.get("send_taps_version").is_some() {
+        keys.push("send_taps_version");
+        if v["available"] != true || v["send_taps_version"] != 1 {
+            return Err("FX send tap capability".into());
+        }
     }
     if v.get("owner_binding").is_some() {
         keys.push("owner_binding");
@@ -301,6 +319,9 @@ pub fn snapshot(v: Value) -> Result<Value, String> {
                 validate_returns(&c["returns"], Some(monitors.len()))?;
             } else if c.get("returns").is_some() {
                 return Err("FX unadvertised routing".into());
+            }
+            if (v["send_taps_version"] == 1) != c.get("send_taps").is_some() {
+                return Err("FX send tap capability/config mismatch".into());
             }
             if c["sends"].as_array().unwrap().len() != inputs.len() {
                 return Err("FX input shape".into());
@@ -594,7 +615,7 @@ pub fn review_lines(body: &Value, snapshot: Option<&Value>) -> String {
         lines.push("Main silence does not silence monitor returns. Bypass drains tails to every destination.".into());
     }
     lines.extend(sound_lines(&c));
-    lines.push("Channel sends (post-fader and post-mute):".into());
+    lines.push("Channel sends (processed, post-mute; tap shown per input):".into());
     if let Some(sends) = c["sends"].as_array() {
         for (i, send) in sends.iter().enumerate() {
             let id = snapshot
@@ -602,9 +623,14 @@ pub fn review_lines(body: &Value, snapshot: Option<&Value>) -> String {
                 .map(str::to_owned)
                 .unwrap_or_else(|| format!("Input {}", i + 1));
             lines.push(format!(
-                "{}: {:.2}%",
+                "{}: {:.2}% / {}",
                 id,
-                send.as_f64().unwrap_or(0.) * 100.
+                send.as_f64().unwrap_or(0.) * 100.,
+                if c["send_taps"][i] == "pre_fader" {
+                    "Pre-fader"
+                } else {
+                    "Post-fader"
+                }
             ));
         }
     }

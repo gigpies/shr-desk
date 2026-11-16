@@ -196,6 +196,20 @@ fn actual_four_aux_frontend_review_and_readback() {
             after["buses"][i]["configuration_json"]
         );
     }
+    // Real provider capability, keyboard selection, complete review and settled tap readback.
+    let tap_field = after["monitors"].as_array().map_or(9, |m| 10 + m.len());
+    assert_eq!(after["send_taps_version"], 1);
+    act(&mut f, A::Field(tap_field as i8));
+    act(&mut f, A::Adjust(-1));
+    confirm(&mut f);
+    let selected = snapshot(&f);
+    let c = shr_desk::fx_aux::configuration(
+        selected["buses"][0]["configuration_json"].as_str().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(c["send_taps"][0], "pre_fader");
+    assert_eq!(c["sends"][0], 0.05);
+    act(&mut f, A::Field(-(tap_field as i8)));
     act(&mut f, A::ChooseAlgorithm(8));
     confirm(&mut f);
     act(&mut f, A::Field(6));
@@ -272,10 +286,12 @@ fn actual_four_aux_frontend_review_and_readback() {
             .as_ref()
             .is_some_and(|u| u.fx_aux.snapshot.is_some())
     });
-    assert_eq!(
-        snapshot(&reconnect)["buses"][3]["configuration_json"],
-        retained["buses"][3]["configuration_json"]
-    );
+    for bus in 0..4 {
+        assert_eq!(
+            snapshot(&reconnect)["buses"][bus]["configuration_json"],
+            retained["buses"][bus]["configuration_json"]
+        );
+    }
 }
 
 /// Used by GigPies' bounded authenticated loopback owner/sample harness.
@@ -448,7 +464,24 @@ fn actual_provider_saved_fx_controls() {
         act(&mut f, A::Adjust(1));
         confirm(&mut f);
     }
+    for bus in 0..4 {
+        f.fx_aux_ui.bus = bus;
+        f.fx_aux_ui.field = snapshot(&f)["monitors"]
+            .as_array()
+            .map_or(9, |m| 10 + m.len());
+        act(&mut f, A::Adjust(-1));
+        confirm(&mut f);
+    }
     let changed = snapshot(&f);
+    for bus in 0..4 {
+        let config = shr_desk::fx_aux::configuration(
+            changed["buses"][bus]["configuration_json"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(config["send_taps"][0], "pre_fader");
+    }
     tap(&mut f, "O");
     wait(&mut f, "loaded", |f| {
         f.state

@@ -17,7 +17,16 @@ writable FX and scene workflows must not be inferred from simulator pictures.
 - Measured audio presentation is a contribution to
   [GP-METER](https://github.com/gigpies/gigpies/blob/main/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-meter--measured-audio-on-the-real-desk).
   Keep its end-to-end plan and progress there; no separate DS-METER tracker.
-- Four-aux palette, send and independent Main/configured-monitor return controls contribute to [GP-FX](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-fx--writable-owner-effects-in-the-console); [FX operation](FX.md) owns the workflow. Recording and scene contributions follow their shared cards.
+- Four-aux palette, per-input pre/post send selection, versioned saved tap intent and independent Main/configured-monitor return controls contribute to [GP-FX](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-fx--writable-owner-effects-in-the-console); [FX operation](FX.md) owns the workflow. Recording and scene contributions follow their shared cards.
+
+  Publication validation (2026-11-16, Pi5, Rust 1.97.1): 408 default and
+  411 native normal tests passed, with 36 opt-ins skipped per suite. Both
+  warnings-denied Clippy configurations, release builds, formatting and all
+  12 Python regressions passed. The affected actual-provider pre/post review
+  and saved-tap restoration tests passed against the rebuilt current GigPies
+  headless provider; the initial stale executable refused the new capability.
+  Complete-index publication checks passed. Historical renderers, exhaustive
+  matrices and physical hardware/load tests were intentionally skipped.
 - Complete supported audio setup save/review/disarmed restore contributes to
   [GP-SHOW](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-show--audio-scenes-and-operator-recovery); [setup usage](USING.md#save-and-restore-an-audio-setup) and [contract](CONTROL_CONTRACT.md#complete-audio-setup) own consumer behavior. The separate [FX-only slots](FX.md#saved-fx-intent) remain available.
 - Physical console work follows GP-H2. Module-only learned-profile or renderer

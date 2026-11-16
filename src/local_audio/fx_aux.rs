@@ -61,6 +61,9 @@ impl Operator {
         if saved {
             request.body = json!({"return_routing":true,"saved_intent":true});
         }
+        if routing {
+            request.body["send_taps"] = json!(true);
+        }
         let sent = self.now();
         self.transport
             .send_frame_until(&raw_request.encode()?, deadline)?;
@@ -310,6 +313,7 @@ impl Operator {
                 || s["epoch"] != basis["epoch"]
                 || s["monitors"] != basis["monitors"]
                 || s["return_routing_version"] != basis["return_routing_version"]
+                || s["send_taps_version"] != basis["send_taps_version"]
                 || s["inputs"] != basis["inputs"]
                 || (body.get("restore").is_some() && s["restore_ready"] != true)
             {
@@ -350,6 +354,7 @@ impl Operator {
                     )?;
                     if actual["returns"] != before["returns"]
                         || actual["sends"] != before["sends"]
+                        || actual["send_taps"] != before["send_taps"]
                         || actual["settings"] != status["current"]
                         || (actual["settings"] != prior_status["current"]
                             && actual["settings"] != before["settings"])

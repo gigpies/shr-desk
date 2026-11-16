@@ -21,7 +21,7 @@ pub fn validate(v: &Value) -> Result<(), String> {
             "configurations",
         ],
     )?;
-    if v["format"] != "gigpies-fx-intent" || v["version"] != 1 {
+    if v["format"] != "gigpies-fx-intent" || !matches!(v["version"].as_u64(), Some(1 | 2)) {
         return Err("Unsupported FX intent; legacy core/composed files contain no saved FX".into());
     }
     let inputs = v["inputs"].as_array().ok_or("FX saved inputs")?;
@@ -75,7 +75,11 @@ pub fn validate(v: &Value) -> Result<(), String> {
     }
     for text in v["configurations"].as_array().unwrap() {
         let c = crate::fx_aux::configuration(text.as_str().ok_or("saved FX configuration")?)?;
-        crate::provider::keys(&c, &["settings", "sends", "returns", "tempo"])?;
+        let mut keys = vec!["settings", "sends", "returns", "tempo"];
+        if v["version"] == 2 {
+            keys.push("send_taps");
+        }
+        crate::provider::keys(&c, &keys)?;
         crate::fx_aux::validate_returns(&c["returns"], Some(monitors.len()))?;
         if c["sends"].as_array().unwrap().len() != inputs.len() {
             return Err("Saved send dimensions".into());
@@ -87,6 +91,9 @@ pub fn compatible(saved: &Value, snapshot: &Value) -> Result<(), String> {
     validate(saved)?;
     if snapshot["restore_version"] != 1 {
         return Err("Provider does not advertise reviewed bundle restore".into());
+    }
+    if saved["version"] == 2 && snapshot["send_taps_version"] != 1 {
+        return Err("Provider lacks saved FX send taps".into());
     }
     for k in ["show_id", "library_sha256", "inputs", "monitors"] {
         if saved[k] != snapshot[k] {
@@ -119,12 +126,22 @@ pub fn capture(snapshot: &Value) -> Result<Value, String> {
         }
         configs.push(b["configuration_json"].clone());
     }
-    let saved = json!({"format":"gigpies-fx-intent","version":1,"show_id":snapshot["show_id"],"library_sha256":snapshot["library_sha256"],"inputs":snapshot["inputs"],"monitors":snapshot["monitors"],"configurations":configs});
+    let saved = json!({"format":"gigpies-fx-intent","version":if snapshot["send_taps_version"] == 1 {2} else {1},"show_id":snapshot["show_id"],"library_sha256":snapshot["library_sha256"],"inputs":snapshot["inputs"],"monitors":snapshot["monitors"],"configurations":configs});
     validate(&saved)?;
     Ok(saved)
 }
 pub fn mutation(saved: &Value, snapshot: &Value) -> Result<Value, String> {
     compatible(saved, snapshot)?;
+    let mut migrated = saved.clone();
+    if saved["version"] == 1 && snapshot["send_taps_version"] == 1 {
+        migrated["version"] = json!(2);
+        for value in migrated["configurations"].as_array_mut().unwrap() {
+            let mut c = crate::fx_aux::configuration(value.as_str().unwrap())?;
+            c["send_taps"] = json!(vec!["post_fader"; c["sends"].as_array().unwrap().len()]);
+            *value = json!(c.to_string());
+        }
+    }
+    let saved = &migrated;
     let config = crate::fx_aux::configuration(saved["configurations"][0].as_str().unwrap())?;
     let mut body = crate::fx_aux::mutation(snapshot, 0, Some(config))?;
     body["configuration_json"] = saved["configurations"][0].clone();

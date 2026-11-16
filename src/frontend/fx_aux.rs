@@ -60,6 +60,13 @@ impl Frontend {
                     .and_then(|u| u.fx_aux.snapshot.as_ref())
                     .and_then(|s| s["monitors"].as_array())
                     .map_or(9, |m| 10 + m.len());
+                let count = count
+                    + usize::from(
+                        self.state
+                            .as_ref()
+                            .and_then(|u| u.fx_aux.snapshot.as_ref())
+                            .is_some_and(|s| s["send_taps_version"] == 1),
+                    );
                 self.fx_aux_ui.field =
                     (self.fx_aux_ui.field as i32 + i32::from(d)).rem_euclid(count as i32) as usize;
                 Ok(())
@@ -124,7 +131,13 @@ impl Frontend {
                         c["tempo"] = Value::Null;
                     }
                     A::Adjust(d) => {
-                        if self.fx_aux_ui.field >= 9 {
+                        let tap_field = s["monitors"].as_array().map_or(9, |m| 10 + m.len());
+                        if self.fx_aux_ui.field == tap_field && s["send_taps_version"] == 1 {
+                            let tap = c["send_taps"]
+                                .get_mut(self.selected)
+                                .ok_or("select an available input first")?;
+                            *tap = json!(if d < 0 { "pre_fader" } else { "post_fader" });
+                        } else if self.fx_aux_ui.field >= 9 {
                             let field = self.fx_aux_ui.field;
                             let r = c.get_mut("returns").ok_or(
                                 "Independent return routing unavailable; probe support first",
@@ -334,14 +347,23 @@ impl Frontend {
                                     .as_str()
                                     .unwrap_or("Select an input");
                                 lines.push(format!(
-                                    "  {} send: {:.0}% / post-fader, post-mute",
+                                    "  {} send: {:.0}% / {}, post-mute",
                                     input,
-                                    c["sends"][self.selected].as_f64().unwrap_or(0.) * 100.
+                                    c["sends"][self.selected].as_f64().unwrap_or(0.) * 100.,
+                                    if c["send_taps"][self.selected] == "pre_fader" {
+                                        "Pre-fader"
+                                    } else {
+                                        "Post-fader"
+                                    }
                                 ));
                                 let algorithm = c["settings"]["algorithm"].as_u64().unwrap_or(0);
                                 let labels = crate::fx_aux::field_labels(algorithm);
                                 let field = self.fx_aux_ui.field;
-                                let label = if field < 9 {
+                                let tap_field =
+                                    s["monitors"].as_array().map_or(9, |m| 10 + m.len());
+                                let label = if field == tap_field && s["send_taps_version"] == 1 {
+                                    "Send tap: − Pre / + Post".into()
+                                } else if field < 9 {
                                     labels[field].to_owned()
                                 } else if field == 9 {
                                     "Main-only return".into()

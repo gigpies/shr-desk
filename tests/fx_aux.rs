@@ -174,3 +174,23 @@ fn actual_return_producer_fixture_decodes_all_applied_routes() {
         }
     }
 }
+
+#[test]
+fn send_tap_capability_shape_and_unknown_modes_are_strict() {
+    let mut s = fixture();
+    s["send_taps_version"] = json!(1);
+    for b in s["buses"].as_array_mut().unwrap() {
+        let mut c = fx_aux::configuration(b["configuration_json"].as_str().unwrap()).unwrap();
+        c["send_taps"] = json!(vec!["post_fader"; c["sends"].as_array().unwrap().len()]);
+        b["configuration_json"] = json!(c.to_string());
+    }
+    fx_aux::snapshot(s.clone()).unwrap();
+    let mut c =
+        fx_aux::configuration(s["buses"][0]["configuration_json"].as_str().unwrap()).unwrap();
+    c["send_taps"][0] = json!("pre_mute");
+    assert!(fx_aux::configuration(&c.to_string()).is_err());
+    c["send_taps"] = json!([]);
+    assert!(fx_aux::configuration(&c.to_string()).is_err());
+    s.as_object_mut().unwrap().remove("send_taps_version");
+    assert!(fx_aux::snapshot(s).is_err());
+}
