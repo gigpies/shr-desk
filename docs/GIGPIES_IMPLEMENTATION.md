@@ -69,3 +69,6 @@ software transport boundaries and the implemented dedicated Master gain workflow
 and actual v5 review/readback acceptance are recorded once in GP-GATE; the Frontend
 feedback-worker integration and pure elapsed-time speed corrections belong to
 GP-PANEL. Master acceptance and the remaining physical work are recorded in that same card.
+
+The F9 PA editor contributes the output selector, bypass and applied frequency
+to [GP-PA-FEEDBACK](https://github.com/gigpies/gigpies/blob/main/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-pa-feedback--one-notch-on-one-output).

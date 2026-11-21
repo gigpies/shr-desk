@@ -1826,3 +1826,33 @@ fn feedback_output_failure_does_not_close_frontend_input() {
     f.detach_controller_feedback();
     assert!(!f.controller_feedback_failed());
 }
+
+#[test]
+fn pa_editor_keeps_applied_feedback_readback_separate_from_bypass_draft() {
+    let mut snapshot = crate::structure::decode_snapshot(include_bytes!(
+        "../../tests/fixtures/gp14/v1/structure-16.json"
+    ))
+    .unwrap();
+    snapshot.pa_capabilities.as_mut().unwrap()["feedback_notch"] = true.into();
+    snapshot.pa_status = Some(json!({"feedback_output_plus_one": 1, "feedback_hz": 996}));
+    let mut config: serde_json::Value =
+        serde_json::from_str(snapshot.pa_configuration_json.as_ref().unwrap()).unwrap();
+    config["feedback_output"] = 0.into();
+    snapshot.pa_configuration_json = Some(config.to_string());
+    let mut f = surface();
+    let mut draft = crate::structure::Draft::new(&snapshot, "pa_configuration", 1).unwrap();
+    draft.text("Bypass").unwrap();
+    f.structural_draft = Some(draft);
+    f.state.as_mut().unwrap().structural = Some(snapshot);
+    let scene = f.scene();
+    assert!(scene.in_bounds());
+    assert!(scene.primitives.iter().any(
+        |p| matches!(p, Primitive::Text {value,..} if value.contains("PA output 1, cut at 996 Hz"))
+    ));
+    assert!(
+        scene
+            .primitives
+            .iter()
+            .any(|p| matches!(p, Primitive::Text {value,..} if value.contains("= Bypass")))
+    );
+}

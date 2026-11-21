@@ -257,10 +257,13 @@ pub fn read_import(path: &std::path::Path) -> Result<String, String> {
     Ok(text)
 }
 
+const FEEDBACK_FIELD: &str = "/configuration/feedback_output";
+
 /// Detached draft. PA numeric/boolean fields retain the owner's names and units;
 /// physical routing selects explicit advertised sources for existing output sockets.
 #[derive(Clone, Debug)]
 pub struct Draft {
+    feedback_supported: bool,
     pub live_context: Option<crate::live_eq::Snapshot>,
     pub master_eq: Option<crate::master_eq::View>,
     pub master_context: Option<(String, String)>,
@@ -284,18 +287,24 @@ impl Draft {
             ),
             _ => return Err("PA or output-routes scope required".into()),
         };
+        let feedback_supported = kind == "pa_set"
+            && snapshot
+                .pa_capabilities
+                .as_ref()
+                .is_some_and(|c| c["feedback_notch"] == true);
         let mut fields = Vec::new();
         if kind == "output_patch" {
             fields.extend(
                 (0..snapshot.topology.outputs.len()).map(|n| format!("/outputs/{n}/source")),
             );
         } else {
-            editable_fields(&document, "", &mut fields);
+            pa_fields(&document, feedback_supported, &mut fields);
         }
         if fields.is_empty() {
             return Err("no advertised editable fields".into());
         }
         Ok(Self {
+            feedback_supported,
             live_context: None,
             master_eq: None,
             master_context: None,
@@ -377,6 +386,17 @@ impl Draft {
             *self.document.pointer_mut(&path).ok_or("delay field")? = serde_json::json!(ms);
             return Ok(());
         }
+        if self.feedback_supported && self.fields[self.selected] == FEEDBACK_FIELD {
+            let value = text.trim();
+            let output = if value.eq_ignore_ascii_case("bypass") {
+                0
+            } else {
+                value
+                    .parse::<usize>()
+                    .map_err(|_| "enter output number or Bypass")?
+            };
+            return self.select_feedback(output);
+        }
         let value: Value = serde_json::from_str(text)
             .or_else(|e| {
                 if self.master_eq.is_some() && self.fields[self.selected].ends_with("/kind") {
@@ -401,7 +421,7 @@ impl Draft {
         if self.kind == "pa_set" {
             let selected = self.fields.get(self.selected).cloned();
             self.fields.clear();
-            editable_fields(&self.document, "", &mut self.fields);
+            pa_fields(&self.document, self.feedback_supported, &mut self.fields);
             self.selected = selected
                 .and_then(|p| self.fields.iter().position(|v| v == &p))
                 .unwrap_or(0);
@@ -427,9 +447,44 @@ impl Draft {
         *self = candidate;
         Ok(())
     }
+    fn select_feedback(&mut self, output: usize) -> Result<(), String> {
+        let graph = self.document["configuration"]
+            .as_object_mut()
+            .ok_or("PA configuration")?;
+        let count = graph
+            .get("outputs")
+            .and_then(Value::as_array)
+            .ok_or("PA outputs unavailable")?
+            .len();
+        if output > count {
+            return Err("feedback output outside PA configuration".into());
+        }
+        if output == 0 {
+            graph.remove("feedback_output");
+        } else {
+            graph.insert("feedback_output".into(), (output - 1).into());
+        }
+        Ok(())
+    }
     pub fn adjust(&mut self, delta: i32, snapshot: &Snapshot) -> Result<(), String> {
         if let Some(view) = &self.master_eq {
             return view.adjust(&mut self.document, &self.fields[self.selected], delta);
+        }
+        if self.feedback_supported && self.fields[self.selected] == FEEDBACK_FIELD {
+            let count = self.document["configuration"]["outputs"]
+                .as_array()
+                .ok_or("PA outputs unavailable")?
+                .len();
+            let current = self
+                .document
+                .pointer(FEEDBACK_FIELD)
+                .and_then(Value::as_u64)
+                .and_then(|i| usize::try_from(i).ok())
+                .filter(|&i| i < count)
+                .map_or(0, |i| i + 1);
+            return self.select_feedback(
+                (current as i64 + i64::from(delta)).rem_euclid(count as i64 + 1) as usize,
+            );
         }
         let field = self
             .document
@@ -475,6 +530,12 @@ impl Draft {
     /// Display the actual integer-sample setting, not extra acoustic precision.
     pub fn field_display(&self, path: &str) -> String {
         let value = self.document.pointer(path).unwrap_or(&Value::Null);
+        if self.feedback_supported && path == FEEDBACK_FIELD {
+            return value
+                .as_u64()
+                .and_then(|i| i.checked_add(1))
+                .map_or_else(|| "Bypass".into(), |n| format!("PA output {n}"));
+        }
         if path.ends_with("/delay_ms")
             && let (Some(ms), Some(rate)) = (
                 value.as_f64(),
@@ -513,6 +574,13 @@ impl Draft {
         } else {
             Ok(self.document.clone())
         }
+    }
+}
+fn pa_fields(document: &Value, feedback_supported: bool, fields: &mut Vec<String>) {
+    editable_fields(document, "", fields);
+    if feedback_supported {
+        fields.retain(|p| p != FEEDBACK_FIELD);
+        fields.insert(0, FEEDBACK_FIELD.into());
     }
 }
 fn editable_fields(value: &Value, path: &str, fields: &mut Vec<String>) {

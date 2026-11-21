@@ -243,3 +243,25 @@ fn master_eq_stereo_failure_is_atomic_and_submission_proves_preservation() {
         assert!(d.body().is_err(), "{path}");
     }
 }
+
+#[test]
+fn feedback_output_cycles_from_bypass_without_changing_other_pa_settings() {
+    let mut s = snapshot();
+    let legacy = Draft::new(&s, "pa_configuration", 1).unwrap();
+    assert!(
+        !legacy
+            .fields
+            .iter()
+            .any(|p| p.ends_with("/feedback_output"))
+    );
+    s.pa_capabilities.as_mut().unwrap()["feedback_notch"] = true.into();
+    let mut draft = Draft::new(&s, "pa_configuration", 1).unwrap();
+    let original = draft.body().unwrap();
+    assert_eq!(draft.field_display(&draft.fields[0]), "Bypass");
+    draft.adjust(1, &s).unwrap();
+    assert_eq!(draft.field_display(&draft.fields[0]), "PA output 1");
+    assert_eq!(draft.document["configuration"]["feedback_output"], 0);
+    assert!(draft.text("99999").is_err());
+    draft.text("Bypass").unwrap();
+    assert_eq!(draft.body().unwrap(), original);
+}

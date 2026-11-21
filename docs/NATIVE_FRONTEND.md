@@ -478,6 +478,12 @@ All imported fields remain unsent until F4 and complete paged review/confirmatio
 Preview rows abbreviate long values; the review contains the full replacement
 document and bus map. Import does not grant authority, prepare DSP or rearm outputs.
 
+With a feedback-capable PA, the first F9 PA field selects **Bypass** or one
+numbered speaker output. Adjust it with the normal field controls. The separate
+feedback readback shows the last observed output and cut frequency, or
+“listening” while the guard is waiting. Use the usual muted review, Apply and
+explicit rearm for either selection. Bypass clears the notch.
+
 `local_audio::AuthorityConnection` carries framed bytes while Operator/Session
 retain leases, freshness, one pending request, retries and no-replay recovery.
 The successor uses GP14 immutable document segmentation:64KiB frame bound,

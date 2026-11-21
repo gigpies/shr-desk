@@ -3720,6 +3720,25 @@ impl Frontend {
                     .into(),
                 "#f1bd6b",
             );
+            if draft.kind == "pa_set"
+                && let Some(snapshot) = self.state.as_ref().and_then(|u| u.structural.as_ref())
+                && snapshot
+                    .pa_capabilities
+                    .as_ref()
+                    .is_some_and(|c| c["feedback_notch"] == true)
+                && let Some(status) = &snapshot.pa_status
+                && let (Some(output), Some(hz)) = (
+                    status["feedback_output_plus_one"].as_u64(),
+                    status["feedback_hz"].as_u64(),
+                )
+            {
+                let feedback = match (output, hz) {
+                    (0, _) => "bypassed".into(),
+                    (_, 0) => format!("PA output {output} listening"),
+                    _ => format!("PA output {output}, cut at {hz} Hz"),
+                };
+                line(76, format!("Feedback readback: {feedback}"), "#e4e8e9");
+            }
             let start = draft.selected / 28 * 28;
             for (row, path) in draft.fields.iter().skip(start).take(28).enumerate() {
                 line(
