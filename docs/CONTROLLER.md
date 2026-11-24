@@ -36,8 +36,9 @@ absolute/relative encoding; never infer it from appearance or CC number.
 ## Profile/input/output implementation
 
 `src/controller_flow.rs` and `Frontend::inject_controller_flow` accept complete
-messages from an explicitly named endpoint with acquisition generation. No MIDI
-port is opened. Profiles declare sixteen relative encodings/CCs, optional alternate
+messages from an explicitly named endpoint with acquisition generation;
+`src/controller_input.rs` loads learned profiles and runs read-only acquisition
+(see [learning](#learning-and-running-a-physical-controller)). Profiles declare sixteen relative encodings/CCs, optional alternate
 CCs only for rotaries 1/9, two distinct pad-note banks, key channel/anchor, and
 optional exact captured Shift-down/up messages. A profile must be installed with
 `Input::reset(current_generation)`. Unknown hardware bindings remain unqualified.
@@ -60,6 +61,43 @@ leave input independent and retry changed output on a later batch. Reconnect
 invalidates the sent cache. No preset/backlight writes or real messages are sent.
 Physical press-white, bank/Shift/memory indication and exit restoration remain
 unqualified; the transient last colours may remain until hardware replaces them.
+
+### Learning and running a physical controller
+
+0. **Import the SHR-DAW learn (normal path).** The MiniLab mkII mapping is
+   already learned in SHR-DAW (`user/state/shsynth/controller.conf`, v9):
+   `shr-desk --controller-import-daw CONTROLLER.conf usb-Arturia_Arturia_MiniLab_mkII-00 10 > PROFILE.json`.
+   Rotaries 1–16 (Relative 1 → `binary_offset`), the hardware-Shift alternate CC
+   on rotary 1 and pads 1–8 are taken exactly. SHR-DAW does not learn pads bank 2
+   or the keys; the importer prints those defaults (bank 2 = bank 1 + 8, keys on
+   the rotary channel from C4) so they are checked on hardware, not assumed silently.
+1. **Learn (read-only), only for a controller SHR-DAW has not learned.** `shr-desk --controller-learn usb-Arturia_Arturia_MiniLab_mkII-00 120`
+   prints every complete message for two minutes: press each pad in both banks,
+   turn each encoder both ways, press Shift. Nothing is written to the device.
+2. **Write the profile** (`SHR-DESK-CONTROLLER` v1). Unknown fields, missing
+   rotaries, half-captured Shift and every collision rule are refused:
+
+```json
+{"contract": "SHR-DESK-CONTROLLER", "version": 1,
+ "endpoint": "usb-Arturia_Arturia_MiniLab_mkII-00",
+ "rotary_channel": 0,
+ "rotaries": [{"cc": 112, "encoding": "binary_offset"}, "… sixteen entries; optional alternate_cc on 1 and 9"],
+ "shift_down": [176, 90, 127], "shift_up": [176, 90, 0],
+ "key_channel": 0, "key_anchor": 48, "pad_channel": 9,
+ "pads": [[36,37,38,39,40,41,42,43], [44,45,46,47,48,49,50,51]],
+ "pitch_channel": 0, "pitch_returns_to_center": true,
+ "hardware_qualified": false}
+```
+
+   Encodings: `twos_complement`, `binary_offset`, `signed_bit` — read them from the
+   learned values (e.g. 63/65 around 64 is binary offset).
+3. **Run.** `shr-desk --terminal … --controller-profile PROFILE.json`. The shared
+   read-only reader (`shr-instrument-panel::midi`) resolves the by-id name, parses
+   running status, and stamps every connection with a new generation. Messages go
+   through `Frontend::inject_controller_flow`; the endpoint must equal the
+   role-bound controller. A disconnect fences held input until the controller returns.
+
+Set `hardware_qualified` only after the GP-H2 physical checks.
 
 ### EQ Shift, gain guards and Master speed
 

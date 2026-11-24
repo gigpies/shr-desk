@@ -50,7 +50,7 @@ it never recalls yesterday's scene. Engine-held human overrides survive UI loss.
 
 Read on 2026-10-04, including each relevant README and the focused documents below.
 Local docs include unreleased work; source revisions and dirty-state distinctions
-are recorded in [status](STATUS.md). These are integration findings, not a claim
+are recorded in the [evidence archive](archive/evidence-to-2026-11-24.md). These are integration findings, not a claim
 that every sibling was retested.
 
 | Owner | Available evidence | What Desk consumes | Missing for the intended product |

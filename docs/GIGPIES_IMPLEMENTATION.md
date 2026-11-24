@@ -8,7 +8,7 @@ GigPies owns audio processing, authority and device/transport integration.
 Provider-backed native controls, four-band channel processing, dynamic banking,
 reviewed PA/output edits and Brain duplex/PFL/AFL/talkback controls have recorded
 software acceptance. [Native contract](NATIVE_FRONTEND.md),
-[dated evidence](STATUS.md), and GigPies modular/Brain acceptance define the scope.
+[dated evidence](archive/evidence-to-2026-11-24.md), and GigPies modular/Brain acceptance define the scope.
 Physical display/controller/LED operation is unqualified. Real level meters,
 writable FX and scene workflows must not be inferred from simulator pictures.
 
@@ -63,7 +63,7 @@ the software adapter from physical input acquisition and device qualification.
 
 Controller profiles, Gate presentation and the 24+Master keybed contribute to
 [GP-GATE](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-gate--lightweight-channel-gates-and-tom-decay-control)
-and [GP-PANEL](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#controllerkeybed-implementation--2026-10-30).
+and [GP-PANEL](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-panel--shared-physical-instrument-panel).
 [Controller flows](CONTROLLER.md) defines exact bindings, provisional gain policy,
 software transport boundaries and the implemented dedicated Master gain workflow. Raw-cue preparation
 and actual v5 review/readback acceptance are recorded once in GP-GATE; the Frontend

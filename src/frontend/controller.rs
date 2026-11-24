@@ -919,6 +919,10 @@ impl Frontend {
         self.controller_identity = Some(profile.endpoint);
         Ok(input)
     }
+    /// Provider generation that controller input must carry to act.
+    pub fn controller_generation(&self) -> u64 {
+        self.provider.generation()
+    }
     pub fn controller_lost(&mut self) {
         self.fence();
         self.controller_identity = None;

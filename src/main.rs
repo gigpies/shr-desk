@@ -10,7 +10,7 @@ use std::{
     path::Path,
 };
 
-const HELP: &str = "shr-desk: offline surface prototype (no hardware or network)\n\n  shr-desk gallery DIRECTORY   Render three 1920x1080 SVG screens + index\n  shr-desk simulate            Line-oriented interactive control simulator\n\n  shr-desk --provider SHOW_UUID EPOCH --snapshot-file FILE [--snapshot-file FILE ...] [--select INPUT_ID] [--render FILE.svg]\n    Explicit headless read-only GP02 snapshot bodies; no connection or devices\n\nReal local offline provider (explicit opt-in):\n  shr-desk --audio-local ENDPOINT SHOW_UUID EPOCH WRITER foh|monitor1|monitor2 [--script FILE|-]\n  Script: snapshot, grant, input-release, set INPUT PARAM INTEGER|BOOL, send INPUT MONITOR MDB, mode manual|assist, json KIND BODY, status, export FILE, release\n  Measurement: --measurement-local ENDPOINT SHOW EPOCH WRITER pa_configuration --script FILE\n  measurement probe|capture|cancel|result|propose|apply; exact editor fields documented in docs/PA_MEASUREMENT.md.\n  Private owned Unix endpoint only; no hardware acceptance.\n\nSimulation commands:\n  select ID | level DB | pan -100..100 | mute | hold | release\n  mode auto|assist|manual | propose ID DB | page mix|channel|analysis\n  midi HEX HEX HEX   Inject one complete message using the fixture profile\n  confirm | cancel | back | bank -1|1 | key KEY | keydown KEY | keyup KEY\n  focus text|surface|lost | disconnect | reconnect | render FILE.svg | status | help | quit\n\nHold/mute/release/mode open previews; confirm commits, cancel discards.\nDraft pads: P1 Confirm, P2 Cancel, P8 Back; mode picker P1/P2/P3 Auto/Assist/Manual.\nKeys: F1/F2/F6 pages, arrows/Tab selection, PageUp/PageDown banks, +/- gain, [/ ] pan,\nM/H/R/A previews, F10 menu, 1/2/3 mode choice, Enter confirm, Esc back/cancel.\nSimulator state is synthetic and discarded on exit. No device is opened.\n\nRead-only module health: --modules-status ENDPOINT SHOW_UUID EPOCH\n\nReal frontend: --headless ENDPOINT SHOW EPOCH WRITER SCOPE OUTPUT.ppm [--role-provider EXEC REGISTRY ACQUIRE_JSON]\nRatatui console: --terminal ENDPOINT SHOW EPOCH WRITER SCOPE [same role/capability options]\nOptional native feature: --native ENDPOINT SHOW EPOCH WRITER SCOPE [--role-provider EXEC REGISTRY ACQUIRE_JSON]\nCPU GPU check: --offscreen ENDPOINT SHOW EPOCH WRITER SCOPE OUTPUT.ppm\nAdd --brain-audio for explicit GP15 monitoring/PTT on C-AUDIO2. F3 Brain page; T hold talkback (release closes); source/arm and destinations require reviewed separate grants. Add --dynamic to explicitly select C-AUDIO2/rendered2 and GP07-processing4 (no silent downgrade). Add --processing to a real frontend invocation to probe GP07 on its shared connection. Channel: E edit, U/I field, J/K fine, N/P coarse, F4 Apply, Enter confirm, Esc cancel. F12 sends: F1 overview/F2 channel, U/I monitor, O/F/V scope reattach then NEW G grant; E tap draft, S level entry, F4 review. PA: F11 muted Master EQ; L probe live EQ then E edit; B/C section/channel.\nNative opens a window only when explicitly invoked; do not launch during software-only work.";
+const HELP: &str = "shr-desk: offline surface prototype (no hardware or network)\n\n  shr-desk gallery DIRECTORY   Render three 1920x1080 SVG screens + index\n  shr-desk simulate            Line-oriented interactive control simulator\n\n  shr-desk --provider SHOW_UUID EPOCH --snapshot-file FILE [--snapshot-file FILE ...] [--select INPUT_ID] [--render FILE.svg]\n    Explicit headless read-only GP02 snapshot bodies; no connection or devices\n\nReal local offline provider (explicit opt-in):\n  shr-desk --audio-local ENDPOINT SHOW_UUID EPOCH WRITER foh|monitor1|monitor2 [--script FILE|-]\n  Script: snapshot, grant, input-release, set INPUT PARAM INTEGER|BOOL, send INPUT MONITOR MDB, mode manual|assist, json KIND BODY, status, export FILE, release\n  Measurement: --measurement-local ENDPOINT SHOW EPOCH WRITER pa_configuration --script FILE\n  measurement probe|capture|cancel|result|propose|apply; exact editor fields documented in docs/PA_MEASUREMENT.md.\n  Private owned Unix endpoint only; no hardware acceptance.\n\nSimulation commands:\n  select ID | level DB | pan -100..100 | mute | hold | release\n  mode auto|assist|manual | propose ID DB | page mix|channel|analysis\n  midi HEX HEX HEX   Inject one complete message using the fixture profile\n  confirm | cancel | back | bank -1|1 | key KEY | keydown KEY | keyup KEY\n  focus text|surface|lost | disconnect | reconnect | render FILE.svg | status | help | quit\n\nHold/mute/release/mode open previews; confirm commits, cancel discards.\nDraft pads: P1 Confirm, P2 Cancel, P8 Back; mode picker P1/P2/P3 Auto/Assist/Manual.\nKeys: F1/F2/F6 pages, arrows/Tab selection, PageUp/PageDown banks, +/- gain, [/ ] pan,\nM/H/R/A previews, F10 menu, 1/2/3 mode choice, Enter confirm, Esc back/cancel.\nSimulator state is synthetic and discarded on exit. No device is opened.\n\nRead-only module health: --modules-status ENDPOINT SHOW_UUID EPOCH\n\nReal frontend: --headless ENDPOINT SHOW EPOCH WRITER SCOPE OUTPUT.ppm [--role-provider EXEC REGISTRY ACQUIRE_JSON]\nRatatui console: --terminal ENDPOINT SHOW EPOCH WRITER SCOPE [same role/capability options] [--controller-profile LEARNED.json]\nController learn (read-only capture): --controller-learn BY_ID_NAME [SECONDS]\nImport SHR-DAW learned profile: --controller-import-daw CONTROLLER.conf BY_ID_NAME ROTARY_CHANNEL(1-16) > PROFILE.json\nOptional native feature: --native ENDPOINT SHOW EPOCH WRITER SCOPE [--role-provider EXEC REGISTRY ACQUIRE_JSON]\nCPU GPU check: --offscreen ENDPOINT SHOW EPOCH WRITER SCOPE OUTPUT.ppm\nAdd --brain-audio for explicit GP15 monitoring/PTT on C-AUDIO2. F3 Brain page; T hold talkback (release closes); source/arm and destinations require reviewed separate grants. Add --dynamic to explicitly select C-AUDIO2/rendered2 and GP07-processing4 (no silent downgrade). Add --processing to a real frontend invocation to probe GP07 on its shared connection. Channel: E edit, U/I field, J/K fine, N/P coarse, F4 Apply, Enter confirm, Esc cancel. F12 sends: F1 overview/F2 channel, U/I monitor, O/F/V scope reattach then NEW G grant; E tap draft, S level entry, F4 review. PA: F11 muted Master EQ; L probe live EQ then E edit; B/C section/channel.\nNative opens a window only when explicitly invoked; do not launch during software-only work.";
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
@@ -28,6 +28,20 @@ fn main() -> Result<(), Box<dyn Error>> {
     } else {
         None
     };
+    let controller_profile =
+        if let Some(index) = args.iter().position(|a| a == "--controller-profile") {
+            if index + 1 >= args.len() {
+                return Err("--controller-profile requires a learned profile JSON file".into());
+            }
+            let path = args.remove(index + 1);
+            args.remove(index);
+            Some(shr_desk::controller_input::load_profile(Path::new(&path))?)
+        } else {
+            None
+        };
+    if controller_profile.is_some() && args.first().map(String::as_str) != Some("--terminal") {
+        return Err("--controller-profile applies to the --terminal console".into());
+    }
     let brain_audio = args.iter().any(|a| a == "--brain-audio");
     let dynamic = brain_audio || remote.is_some() || args.iter().any(|a| a == "--dynamic");
     let processing = args.iter().any(|a| a == "--processing");
@@ -46,6 +60,29 @@ fn main() -> Result<(), Box<dyn Error>> {
         [] => println!("{HELP}"),
         [a] if a == "--help" || a == "help" => println!("{HELP}"),
         [a] if a == "simulate" => simulate()?,
+        [a, conf, endpoint, channel] if a == "--controller-import-daw" => {
+            let channel: u8 = channel.parse().map_err(|_| "MIDI channel 1-16")?;
+            if !(1..=16).contains(&channel) {
+                return Err("MIDI channel 1-16".into());
+            }
+            let (profile, assumed) = shr_desk::controller_input::import_daw(
+                &std::fs::read_to_string(conf)?,
+                endpoint,
+                channel - 1,
+            )?;
+            for a in assumed {
+                eprintln!("assumed: {a}");
+            }
+            println!("{}", serde_json::to_string_pretty(&profile)?);
+        }
+        [a, endpoint] if a == "--controller-learn" => {
+            shr_desk::controller_input::learn(endpoint, 120, &mut io::stdout())?
+        }
+        [a, endpoint, seconds] if a == "--controller-learn" => shr_desk::controller_input::learn(
+            endpoint,
+            seconds.parse().map_err(|_| "learn seconds")?,
+            &mut io::stdout(),
+        )?,
         [a, path] if a == "gallery" => gallery(Path::new(path))?,
         [a, show, epoch, files @ ..] if a == "--provider" => provider_files(show, epoch, files)?,
         [a, rest @ ..] if a == "--audio-local" => local_audio::run(rest)?,
@@ -72,7 +109,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let (mut config, role) = native_args(rest)?;
             config.wire_version = if dynamic { 2 } else { 1 };
             config.remote = remote;
-            shr_desk::terminal::run(config, role, processing, brain_audio)?;
+            shr_desk::terminal::run(config, role, processing, brain_audio, controller_profile)?;
         }
         #[cfg(feature = "native")]
         [a, rest @ ..] if a == "--native" => {

@@ -70,6 +70,7 @@ pub mod recorder;
 pub mod fx_aux;
 
 pub mod controller_flow;
+pub mod controller_input;
 pub mod gate;
 
 pub mod fx_saved;

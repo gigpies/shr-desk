@@ -410,7 +410,7 @@ Three explicit ignored tests in `tests/gp07_frontend.rs` use the actual frontend
   recovery check described below.
 
 Use the same parent-held nonblocking build lock and explicit CPU ICD environment
-for native integration. Actual validation status is recorded in [Status](STATUS.md).
+for native integration. Actual validation status is recorded in the [evidence archive](archive/evidence-to-2026-11-24.md).
 
 The original `gp07/v1` corpus is unchanged compatibility evidence. This consumer
 refuses v1 snapshots and replies; it never relabels shelf settings as bell settings.
@@ -867,7 +867,7 @@ passed independently on Pi5 using the identical hash-pinned executable and witne
 This includes actual rastered review presentation, correlated completion, explicit
 software rearm, PCM route/gain/phase checks and reconnect without replay. Complete
 normal default/native suites, both Clippy configurations and both release builds
-passed; exact results and software limits are recorded in [Status](STATUS.md).
+passed; exact results and software limits are recorded in the [evidence archive](archive/evidence-to-2026-11-24.md).
 Only narrow owner allocation-free commit/render has supporting owner evidence;
 the surrounding allocating host/control-I/O paths have no whole-host deadline or
 hardware qualification.

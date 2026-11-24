@@ -21,7 +21,7 @@ Implementation details, integration, measured evidence and development tasks.
 
 ## Design, evidence and tasks
 
-- [Dated implementation evidence](STATUS.md)
+- [Status](STATUS.md) and [dated evidence](archive/evidence-to-2026-11-24.md)
 - [SHR Desk blueprint](BLUEPRINT.md)
 - [Screens and operating workflows](SCREENS.md)
 - [Console screen study](CONSOLE_STUDY.md)

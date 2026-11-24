@@ -69,5 +69,5 @@ mute/recovery checks use independent PCM lanes and owner state. The master episo
 checks exact 6.125 dB L-side gain/phase, unchanged owner-mapped R/main/monitor routes,
 non-EQ preservation, muted setup, separate rearm and unsent-review reconnect/no replay.
 Stationary captures wait 48000 actual frames after relevant signal/PA history changes
-under the original run deadline. See [Status](STATUS.md) for final software
+under the original run deadline. See the [evidence archive](archive/evidence-to-2026-11-24.md) for final software
 acceptance and its limits.

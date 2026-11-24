@@ -1856,3 +1856,69 @@ fn pa_editor_keeps_applied_feedback_readback_separate_from_bypass_draft() {
             .any(|p| matches!(p, Primitive::Text {value,..} if value.contains("= Bypass")))
     );
 }
+
+#[test]
+fn production_acquisition_feeds_learned_profile_and_fences_on_loss() {
+    use std::io::Write;
+    let (mut f, rx) = brain_surface();
+    f.brain_page = false;
+    f.controller_identity = Some("test-minilab".into());
+    let v: serde_json::Value = serde_json::json!({
+        "contract": crate::controller_input::CONTRACT, "version": 1,
+        "endpoint": "test-minilab",
+        "rotary_channel": 0,
+        "rotaries": (0..16).map(|i| serde_json::json!({"cc": 16 + i, "encoding": "twos_complement"})).collect::<Vec<_>>(),
+        "shift_down": [0xb0, 90, 127], "shift_up": [0xb0, 90, 0],
+        "key_channel": 0, "key_anchor": 48, "pad_channel": 9,
+        "pads": [[36,37,38,39,40,41,42,43],[44,45,46,47,48,49,50,51]],
+        "pitch_channel": 0, "pitch_returns_to_center": false,
+        "hardware_qualified": false
+    });
+    let profile = crate::controller_input::parse_profile(&serde_json::to_vec(&v).unwrap()).unwrap();
+    let root = std::env::temp_dir().join(format!("desk-midi-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let fifo = root.join("midi");
+    let c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+    let mut writer = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&fifo)
+        .unwrap();
+    // Attaching fences the frontend (state cleared, generation advanced); the
+    // static fixture stands in for the provider's next fresh snapshot.
+    let fresh = f.state.clone();
+    let mut acquisition =
+        crate::controller_input::Acquisition::start_path(&mut f, profile, fifo.clone()).unwrap();
+    assert!(f.state.is_none(), "attach fences previous state");
+    f.state = fresh;
+    // Running status across rotary turns: one CC status then two data pairs.
+    writer
+        .write_all(&[0xb0, 24, 1, 0xb0, 90, 127, 24, 2])
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut delivered = 0;
+    while delivered < 3 && std::time::Instant::now() < deadline {
+        delivered += acquisition.poll(&mut f);
+        f.pump();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(delivered, 3, "{:?}", acquisition.last_error);
+    assert_eq!(
+        f.processing_draft.as_ref().unwrap().config.band1_gain_mdb,
+        300,
+        "same result as the complete-message adapter"
+    );
+    assert!(rx.try_recv().is_err(), "rotary only edits a local draft");
+    // Loss fences the controller identity until the next connection reattaches.
+    drop(writer);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while f.controller_identity.is_some() && std::time::Instant::now() < deadline {
+        acquisition.poll(&mut f);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(f.controller_identity.is_none());
+    drop(acquisition);
+    std::fs::remove_dir_all(&root).unwrap();
+}

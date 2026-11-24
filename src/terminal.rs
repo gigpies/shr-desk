@@ -89,6 +89,7 @@ pub fn run(
     role: Option<crate::roles::Config>,
     processing: bool,
     brain_audio: bool,
+    controller: Option<crate::controller_flow::Profile>,
 ) -> Result<(), String> {
     let mut console = Console::open().map_err(|e| e.to_string())?;
     let mut front = Frontend::new(config);
@@ -96,6 +97,9 @@ pub fn run(
     if let Some(role) = role {
         front.attach_role(role);
     }
+    let mut acquisition = controller
+        .map(|profile| crate::controller_input::Acquisition::start(&mut front, profile))
+        .transpose()?;
     if processing {
         front.enable_processing()?;
     }
@@ -113,6 +117,9 @@ pub fn run(
     let mut materials = crate::channel_material::Materials::default();
     let result = (|| -> Result<(), String> {
         loop {
+            if let Some(a) = &mut acquisition {
+                a.poll(&mut front);
+            }
             front.pump();
             // Initial focus/role acquisition can fence a queued read-only probe.
             // Retry only an unstarted capability probe, never a mutation or refusal.
