@@ -64,6 +64,13 @@ impl Kind {
             Kind::Vocal => "vocal-prepare-stream",
         }
     }
+    /// A whole-song vocal soundcheck (up to 7500 windows) needs more than a gate request.
+    fn request_bytes(self) -> usize {
+        match self {
+            Kind::Gate => 512 * 1024,
+            Kind::Vocal => 1024 * 1024,
+        }
+    }
     fn bound(self) -> Duration {
         match self {
             Kind::Gate => Duration::from_secs(120),
@@ -76,7 +83,7 @@ impl Job {
         Self::start_kind(Kind::Gate, executable, request)
     }
     pub fn start_kind(kind: Kind, executable: PathBuf, request: Vec<u8>) -> Result<Self, String> {
-        if !executable.is_absolute() || request.len() > 512 * 1024 {
+        if !executable.is_absolute() || request.len() > kind.request_bytes() {
             return Err("absolute GigPies executable and bounded request required".into());
         }
         if ACTIVE.swap(true, Ordering::AcqRel) {

@@ -240,8 +240,7 @@ impl Frontend {
                 s.basis = Some(basis);
                 s.phase = Phase::Recording;
                 s.report = vec![
-                    "Recording: ask the singer to sing as in the show, including the loud parts"
-                        .into(),
+                    "Recording: the singer sings the whole loud song; V stops at its end".into(),
                 ];
                 Ok(())
             }

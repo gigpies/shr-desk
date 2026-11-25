@@ -130,7 +130,7 @@ forwarding is unchanged.
 The mode selector cycles Compressor → Gate → Vocal assist. Vocal assist (menu:
 *Vocal assist rotaries*) uses column 5 keep/attack, 6 headroom/recovery, 7 max
 cut; its pad menu has on/off, soundcheck start/stop, use measured, revert,
-review, cancel and discard take. Keys in Channel: **V** soundcheck, **C** use
+review, cancel and discard take. Keys in Channel: **V** soundcheck (whole loud song), **C** use
 measured, **Z** revert. Assist writes need processing v6 and follow the same
 draft/review guards; see [main vocal assist](USING.md#main-vocal-assist).
 

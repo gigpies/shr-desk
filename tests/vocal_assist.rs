@@ -40,8 +40,8 @@ fn soundcheck_documents_are_identity_fenced_and_refusals_stay_bypassed() {
     let d =
         Document::decode_for(&fixture("soundcheck-document.json"), show, "3", "input-01").unwrap();
     assert_eq!(d.proposal.reason, Reason::Prepared);
-    assert_eq!(d.proposal.config.reference_mdb, -25000);
-    assert!(d.report().iter().any(|l| l.contains("Keep -25.0 dBFS")));
+    assert_eq!(d.proposal.config.reference_mdb, -24200);
+    assert!(d.report().iter().any(|l| l.contains("Keep -24.2 dBFS")));
     for (show, epoch, input) in [
         (show, "4", "input-01"),
         (show, "3", "input-02"),

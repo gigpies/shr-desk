@@ -92,29 +92,28 @@ listening qualification remain separate.
 
 ## Main vocal assist
 
-For the lead vocal mic: measure the singer once at soundcheck, keep that level,
-and let GigPies trim only the moments they get louder than that. It never moves
-your fader and never treats stage spill.
+For the lead vocal mic: soundcheck with a loud song, keep its maximum level for
+the show, and let GigPies trim only the moments the singer goes above it. It
+never moves your fader.
 
 1. Select the vocal channel in Channel (FOH). Click the dynamics selector until it
    reads **VOCAL ASSIST**. The assist must be off.
-2. Press **V** (or *SOUNDCHECK* in the Vocal menu) and have the singer sing as in
-   the show, including the loudest parts: at least about six seconds of singing.
-   Press **V** again to stop.
-3. GigPies measures the take and shows the kept level and the singing
-   percentiles, or why it refused (too short, clipped, too quiet, stale meters).
-   Press **C** (*USE MEASURED*) to open the review, then **Enter** to apply.
+2. Press **V** (or *SOUNDCHECK* in the Vocal menu) and have the singer perform a
+   whole loud song. Press **V** again at its end. The whole take is measured
+   (up to five minutes).
+3. GigPies shows the song maximum, which becomes the kept level, or why it
+   refused (too short, clipped, too quiet, stale meters). Press **C**
+   (*USE MEASURED*) to open the review, then **Enter** to apply.
 4. The **CUT** meter and state line show the live reduction (holding level,
    reducing peak, recovering) and how deep and how often it has cut.
 5. **Z** (*REVERT*) drafts the assist switched off with its settings kept; **Enter**
    confirms. **Esc** discards an unfinished take; nothing applies without review.
 
-Columns 5–7 adjust *keep* level, *headroom* (default 3 dB above the kept level),
-*max cut* (default 6 dB, never more than 12 dB), *attack*, *recovery* and on/off.
-Changing the kept level by hand marks it manual instead of measured. If the take
-was mostly intro or spill, the kept level is too low and the assist cuts often:
-soundcheck again with real singing. Save the result with the audio setup. GigPies
-is found from `GIGPIES_BIN`, the gate preparation path, or `PATH`.
+Columns 5–7 adjust *keep* level, *headroom* above it (default 0 dB: cutting starts
+at the song maximum), *max cut* (default 6 dB, never more than 12 dB), *attack*,
+*recovery* and on/off. Changing the kept level by hand marks it manual instead of
+measured. Save the result with the audio setup. GigPies is found from
+`GIGPIES_BIN`, the gate preparation path, or `PATH`.
 
 The four EQ frequency/gain pairs occupy the left side; compressor controls are
 in the middle; pan and level are on the right. Blue marks selection and amber

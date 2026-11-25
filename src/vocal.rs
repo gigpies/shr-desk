@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 pub const MAX_CUT_MDB: u32 = 12000;
-pub const MAX_WINDOWS: usize = 3000;
+pub const MAX_WINDOWS: usize = 7500;
 pub const RULE: &str = "gp-auto-main-vocal-2026-11-21";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -32,7 +32,7 @@ impl Default for Config {
         Self {
             bypass: true,
             reference_mdb: -18000,
-            headroom_mdb: 3000,
+            headroom_mdb: 0,
             max_cut_mdb: 6000,
             attack_us: 5000,
             release_ms: 400,
@@ -154,10 +154,10 @@ impl Reason {
     pub fn operator_text(self) -> &'static str {
         match self {
             Reason::Prepared => "measured",
-            Reason::TooShort => "too little singing; sing longer and stop again",
+            Reason::TooShort => "take too short; record the whole loud song",
             Reason::UnreliableMeter => "meter was stale or unavailable; check the connection",
             Reason::Clipped => "the input clipped; lower the input gain and soundcheck again",
-            Reason::TooQuiet => "too quiet for a vocal; raise the input gain",
+            Reason::TooQuiet => "song maximum too quiet for a vocal; raise the input gain",
             Reason::InvalidEvidence => "invalid soundcheck evidence",
         }
     }
@@ -176,6 +176,7 @@ pub struct Measurements {
     pub rms_p50_mdbfs: i32,
     pub rms_p90_mdbfs: i32,
     pub rms_p99_mdbfs: i32,
+    pub rms_max_mdbfs: i32,
     pub peak_max_mdbfs: i32,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -236,15 +237,14 @@ impl Document {
         )];
         if let Some(m) = p.measurements {
             lines.push(format!(
-                "{} windows: {} singing, {} silent, {} stale, {} unavailable",
+                "{} windows: {} with signal, {} silent, {} stale, {} unavailable",
                 m.windows, m.active, m.silent, m.stale, m.unavailable
             ));
             lines.push(format!(
-                "RMS p10 {:.1} / p50 {:.1} / p90 {:.1} / p99 {:.1} dBFS, peak max {:.1} dBFS",
-                m.rms_p10_mdbfs as f64 / 1000.,
+                "Song maximum {:.1} dBFS RMS (kept level); p50 {:.1} / p90 {:.1} dBFS; peak max {:.1} dBFS",
+                m.rms_max_mdbfs as f64 / 1000.,
                 m.rms_p50_mdbfs as f64 / 1000.,
                 m.rms_p90_mdbfs as f64 / 1000.,
-                m.rms_p99_mdbfs as f64 / 1000.,
                 m.peak_max_mdbfs as f64 / 1000.
             ));
         }
