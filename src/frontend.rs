@@ -4380,6 +4380,9 @@ mod tests;
 #[cfg(test)]
 mod processing_tests;
 
+#[cfg(test)]
+mod meter_tests;
+
 impl Frontend {
     fn send_pair(&self) -> Result<(String, String), String> {
         if !self.fresh() {
