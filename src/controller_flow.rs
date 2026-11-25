@@ -10,6 +10,8 @@ pub enum Dynamics {
     #[default]
     Compressor,
     Gate,
+    /// GP-AUTO main-vocal assist: reference, headroom, max cut, attack, recovery.
+    Vocal,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum Intent {
@@ -310,6 +312,11 @@ pub fn rotary(
             (Dynamics::Gate, 5, false) => Field::GateRelease,
             (Dynamics::Gate, 6, true) => Field::GateRange,
             (Dynamics::Gate, 6, false) => Field::GateHysteresis,
+            (Dynamics::Vocal, 4, true) => Field::VocalReference,
+            (Dynamics::Vocal, 4, false) => Field::VocalAttack,
+            (Dynamics::Vocal, 5, true) => Field::VocalHeadroom,
+            (Dynamics::Vocal, 5, false) => Field::VocalRelease,
+            (Dynamics::Vocal, 6, true) => Field::VocalMaxCut,
             _ => return None,
         }
     };

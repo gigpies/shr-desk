@@ -12,6 +12,7 @@ mod provider;
 mod recorder;
 #[cfg(test)]
 mod setup_tests;
+pub mod vocal_assist;
 #[cfg(test)]
 use crate::local_audio::Operator;
 use crate::{
@@ -380,6 +381,7 @@ pub struct Frontend {
     pub processing_entry: String,
     pub gate_import: bool,
     pub gate_preparation: gate_preparation::Preparation,
+    pub vocal_soundcheck: vocal_assist::Soundcheck,
     pub page: Page,
     pub width: u32,
     pub height: u32,
@@ -466,6 +468,7 @@ impl Frontend {
             processing_entry: String::new(),
             gate_import: false,
             gate_preparation: Default::default(),
+            vocal_soundcheck: Default::default(),
             page: Page::Mix,
             width: 1920,
             height: 1080,
@@ -566,6 +569,7 @@ impl Frontend {
     }
     fn fence_local(&mut self) {
         self.gate_preparation.fence();
+        self.vocal_soundcheck.fence();
         self.stop_master_motion();
         self.controller_surface.lost();
         self.fx_ui.basis = None;
@@ -672,6 +676,7 @@ impl Frontend {
     }
     pub fn pump(&mut self) {
         self.gate_poll();
+        self.vocal_poll();
         if self.ptt_pressed && self.focused && self.device_ready {
             self.provider.brain_signal.pulse();
         }
@@ -1198,6 +1203,23 @@ impl Frontend {
             && matches!(key, "O" | "o")
         {
             return self.gate_command(gate_preparation::Command::Open);
+        }
+        if self.channel_panel_visible()
+            && self.processing_draft.is_none()
+            && self.state.as_ref().is_none_or(|s| s.review.is_none())
+        {
+            let command = match key {
+                "V" | "v" => Some(vocal_assist::Command::Soundcheck),
+                "C" | "c" => Some(vocal_assist::Command::Use),
+                "Z" | "z" => Some(vocal_assist::Command::Revert),
+                "Esc" | "Escape" if self.vocal_soundcheck.phase != vocal_assist::Phase::Idle => {
+                    Some(vocal_assist::Command::Cancel)
+                }
+                _ => None,
+            };
+            if let Some(command) = command {
+                return self.vocal_command(command);
+            }
         }
         if self.gate_import && self.processing_draft.is_some() {
             match key {

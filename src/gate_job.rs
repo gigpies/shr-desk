@@ -1,4 +1,5 @@
-//! Read-only GigPies analysis process; Desk owns no signal analysis.
+//! Read-only GigPies analysis processes (gate cues, vocal soundcheck); Desk owns no
+//! signal analysis.
 use serde::{Deserialize, Serialize};
 use std::{
     path::PathBuf,
@@ -48,8 +49,33 @@ pub struct Job {
     result: mpsc::Receiver<Result<ResultDocument, String>>,
 }
 static ACTIVE: AtomicBool = AtomicBool::new(false);
+/// Which GigPies control process runs; each has its own completion shape.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    /// `gate-prepare-stream`: progress lines, then document plus file receipts.
+    Gate,
+    /// `vocal-prepare-stream`: one document over recorded GP-METER windows.
+    Vocal,
+}
+impl Kind {
+    fn subcommand(self) -> &'static str {
+        match self {
+            Kind::Gate => "gate-prepare-stream",
+            Kind::Vocal => "vocal-prepare-stream",
+        }
+    }
+    fn bound(self) -> Duration {
+        match self {
+            Kind::Gate => Duration::from_secs(120),
+            Kind::Vocal => Duration::from_secs(30),
+        }
+    }
+}
 impl Job {
     pub fn start(executable: PathBuf, request: Vec<u8>) -> Result<Self, String> {
+        Self::start_kind(Kind::Gate, executable, request)
+    }
+    pub fn start_kind(kind: Kind, executable: PathBuf, request: Vec<u8>) -> Result<Self, String> {
         if !executable.is_absolute() || request.len() > 512 * 1024 {
             return Err("absolute GigPies executable and bounded request required".into());
         }
@@ -71,7 +97,7 @@ impl Job {
                     }
                 }
                 let _release = Release;
-                let _ = tx.send(run(executable, request, &c, &p));
+                let _ = tx.send(run(kind, executable, request, &c, &p));
             })
             .map_err(|e| {
                 ACTIVE.store(false, Ordering::Release);
@@ -97,6 +123,7 @@ impl Drop for Job {
     }
 }
 fn run(
+    kind: Kind,
     executable: PathBuf,
     request: Vec<u8>,
     cancel: &AtomicBool,
@@ -130,7 +157,7 @@ fn run(
     }
     let mut child = Child(
         command
-            .arg("gate-prepare-stream")
+            .arg(kind.subcommand())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -145,7 +172,7 @@ fn run(
             return Err("analysis pipe setup".into());
         }
     }
-    let end = Instant::now() + Duration::from_secs(120);
+    let end = Instant::now() + kind.bound();
     let mut sent = 0;
     let mut input = Some(input);
     let mut pending = Vec::new();
@@ -157,7 +184,10 @@ fn run(
             return Err("preparation cancelled; nothing applied".into());
         }
         if Instant::now() >= end {
-            return Err("preparation exceeded 120 second bound; nothing applied".into());
+            return Err(format!(
+                "preparation exceeded {} second bound; nothing applied",
+                kind.bound().as_secs()
+            ));
         }
         if let Some(writer) = &mut input {
             match writer.write(&request[sent..]) {
@@ -192,11 +222,16 @@ fn run(
                             if final_result.is_some() {
                                 return Err("duplicate analysis completion".into());
                             }
-                            let files: Vec<EvidenceFile> =
+                            let files: Vec<EvidenceFile> = if kind == Kind::Gate {
                                 serde_json::from_value(v["files"].clone())
-                                    .map_err(|e| e.to_string())?;
-                            if !(32..=128).contains(&files.len())
-                                || !files.iter().all(EvidenceFile::unchanged)
+                                    .map_err(|e| e.to_string())?
+                            } else {
+                                crate::provider::keys(&v, &["document"])?;
+                                Vec::new()
+                            };
+                            if kind == Kind::Gate
+                                && (!(32..=128).contains(&files.len())
+                                    || !files.iter().all(EvidenceFile::unchanged))
                             {
                                 return Err("evidence changed or missing".into());
                             }

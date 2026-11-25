@@ -7,6 +7,8 @@ use serde_json::Value;
 pub struct Config {
     #[serde(default, skip_serializing_if = "crate::gate::Config::is_default")]
     pub gate: crate::gate::Config,
+    #[serde(default, skip_serializing_if = "crate::vocal::Config::is_default")]
+    pub vocal_assist: crate::vocal::Config,
     pub eq_bypass: bool,
     pub band1_hz: i32,
     pub band1_gain_mdb: i32,
@@ -35,6 +37,7 @@ pub struct Config {
 impl Config {
     pub fn validate(&self) -> Result<(), String> {
         self.gate.validate()?;
+        self.vocal_assist.validate()?;
         for (value, min, max, step) in [
             (self.band1_hz, 20, 20000, 1),
             (self.band1_gain_mdb, -12000, 12000, 100),
@@ -66,7 +69,28 @@ impl Config {
             self.gate.bypass = !self.gate.bypass;
             return Ok(());
         }
+        if field == Field::VocalBypass {
+            self.vocal_assist.bypass = !self.vocal_assist.bypass;
+            return Ok(());
+        }
         let mut candidate = self.clone();
+        let vocal_value = match field {
+            Field::VocalReference => Some((self.vocal_assist.reference_mdb as i64, 100i64)),
+            Field::VocalHeadroom => Some((self.vocal_assist.headroom_mdb as i64, 100)),
+            Field::VocalMaxCut => Some((self.vocal_assist.max_cut_mdb as i64, 100)),
+            Field::VocalAttack => Some((self.vocal_assist.attack_us as i64, 100)),
+            Field::VocalRelease => Some((self.vocal_assist.release_ms as i64, 10)),
+            _ => None,
+        };
+        if let Some((old, step)) = vocal_value {
+            let v = old
+                .checked_add(i64::from(steps) * step)
+                .ok_or("vocal assist overflow")?;
+            candidate.set_vocal(field, v)?;
+            candidate.validate()?;
+            *self = candidate;
+            return Ok(());
+        }
         let gate_value = match field {
             Field::GateThreshold => Some((self.gate.threshold_mdb as i64, 100i64)),
             Field::GateAttack => Some((self.gate.attack_us as i64, 100i64)),
@@ -163,7 +187,7 @@ impl Config {
             Field::Attack => (&mut candidate.attack_us, 100),
             Field::Release => (&mut candidate.release_ms, 1),
             Field::Makeup => (&mut candidate.makeup_mdb, 100),
-            _ => unreachable!("gate handled above"),
+            _ => unreachable!("gate and vocal assist handled above"),
         };
         *value = steps
             .checked_mul(step)
@@ -204,6 +228,8 @@ impl Config {
                 | Field::GateHold
                 | Field::GateRelease
                 | Field::GateDetectorHz
+                | Field::VocalBypass
+                | Field::VocalRelease
         ) {
             1
         } else {
@@ -234,6 +260,7 @@ impl Config {
             | Field::Band4Bypass
             | Field::CompressorBypass
             | Field::GateBypass
+            | Field::VocalBypass
                 if !(0..=1).contains(&value) =>
             {
                 return Err("bypass is 0 (enabled) or 1 (bypassed)".into());
@@ -277,9 +304,30 @@ impl Config {
             Field::GateDetectorQ => {
                 c.gate.detector_q_milli = value.try_into().map_err(|_| "gate range")?
             }
+            Field::VocalBypass => c.vocal_assist.bypass = value == 1,
+            Field::VocalReference
+            | Field::VocalHeadroom
+            | Field::VocalMaxCut
+            | Field::VocalAttack
+            | Field::VocalRelease => c.set_vocal(field, value.into())?,
         }
         c.validate()?;
         *self = c;
+        Ok(())
+    }
+    fn set_vocal(&mut self, field: Field, v: i64) -> Result<(), String> {
+        let a = &mut self.vocal_assist;
+        let unsigned = || u32::try_from(v).map_err(|_| "vocal assist range".to_string());
+        match field {
+            Field::VocalReference => {
+                a.set_manual_reference(i32::try_from(v).map_err(|_| "vocal assist range")?)
+            }
+            Field::VocalHeadroom => a.headroom_mdb = unsigned()?,
+            Field::VocalMaxCut => a.max_cut_mdb = unsigned()?,
+            Field::VocalAttack => a.attack_us = unsigned()?,
+            Field::VocalRelease => a.release_ms = unsigned()?,
+            _ => return Err("not a vocal assist value".into()),
+        }
         Ok(())
     }
     /// Stable band identity order, never frequency-sorted.
@@ -337,6 +385,25 @@ impl Config {
                 "GateDetectorQ {:.1} Q",
                 self.gate.detector_q_milli as f64 / 1000.
             ),
+            Field::VocalBypass => format!("Vocal assist bypass {}", self.vocal_assist.bypass),
+            Field::VocalReference => format!(
+                "Vocal keep {:.1} dBFS ({})",
+                self.vocal_assist.reference_mdb as f64 / 1000.,
+                self.vocal_assist.provenance()
+            ),
+            Field::VocalHeadroom => format!(
+                "Vocal headroom {:.1} dB",
+                self.vocal_assist.headroom_mdb as f64 / 1000.
+            ),
+            Field::VocalMaxCut => format!(
+                "Vocal max cut {:.1} dB",
+                self.vocal_assist.max_cut_mdb as f64 / 1000.
+            ),
+            Field::VocalAttack => format!(
+                "Vocal attack {:.1} ms",
+                self.vocal_assist.attack_us as f64 / 1000.
+            ),
+            Field::VocalRelease => format!("Vocal recovery {} ms", self.vocal_assist.release_ms),
             Field::EqBypass => format!("EQ bypass {}", self.eq_bypass),
             Field::Band1Hz => format!("Band 1 bell {} Hz", self.band1_hz),
             Field::Band1Gain => {
@@ -407,8 +474,14 @@ pub enum Field {
     GateHysteresis,
     GateDetectorHz,
     GateDetectorQ,
+    VocalBypass,
+    VocalReference,
+    VocalHeadroom,
+    VocalMaxCut,
+    VocalAttack,
+    VocalRelease,
 }
-pub const FIELDS: [Field; 33] = [
+pub const FIELDS: [Field; 39] = [
     Field::EqBypass,
     Field::Band1Hz,
     Field::Band1Gain,
@@ -442,6 +515,12 @@ pub const FIELDS: [Field; 33] = [
     Field::GateHysteresis,
     Field::GateDetectorHz,
     Field::GateDetectorQ,
+    Field::VocalBypass,
+    Field::VocalReference,
+    Field::VocalHeadroom,
+    Field::VocalMaxCut,
+    Field::VocalAttack,
+    Field::VocalRelease,
 ];
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -454,6 +533,8 @@ pub struct Channel {
     pub gain_reduction_mdb: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gate: Option<crate::gate::Observation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vocal_assist: Option<crate::vocal::Observation>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -473,8 +554,8 @@ impl Snapshot {
     pub fn validate(&self) -> Result<(), String> {
         self.validate_version(2)
     }
-    pub(crate) fn validate_version(&self, version: u8) -> Result<(), String> {
-        if !matches!(version, 2 | 4 | 5) {
+    pub fn validate_version(&self, version: u8) -> Result<(), String> {
+        if !matches!(version, 2 | 4 | 5 | 6) {
             return Err("processing version".into());
         }
         if !provider::uuid(&self.show_id)
@@ -509,6 +590,21 @@ impl Snapshot {
                 || (self.faulted && c.gate.is_some())
             {
                 return Err("gate observation".into());
+            }
+            if version < 6
+                && (!c.current.vocal_assist.is_default()
+                    || !c.target.vocal_assist.is_default()
+                    || c.vocal_assist.is_some())
+            {
+                return Err("vocal assist requires v6".into());
+            }
+            if c.vocal_assist.is_some()
+                != (c.ready && !self.faulted && !c.target.vocal_assist.is_default())
+                || c.vocal_assist
+                    .as_ref()
+                    .is_some_and(|a| a.validate().is_err())
+            {
+                return Err("vocal assist observation".into());
             }
             c.current.validate()?;
             c.target.validate()?;
@@ -568,11 +664,18 @@ pub(crate) fn validate_body_version(body: &Value, version: u8) -> Result<(), Str
     if version == 1 && !c.gate.is_default() {
         return Err("gate requires dynamic processing v5".into());
     }
+    if version == 1 && !c.vocal_assist.is_default() {
+        return Err("vocal assist requires dynamic processing v6".into());
+    }
     Ok(())
 }
 pub fn decode_reply(bytes: &[u8]) -> Result<Reply, String> {
     let v = provider::parse_document(bytes)?;
-    if v["version"] != 4 && v["version"] != 5 && bytes.len() > provider::MAX_BYTES {
+    if v["version"] != 4
+        && v["version"] != 5
+        && v["version"] != 6
+        && bytes.len() > provider::MAX_BYTES
+    {
         return Err("legacy processing capacity".into());
     }
     provider::keys(
@@ -607,6 +710,9 @@ pub fn decode_reply(bytes: &[u8]) -> Result<Reply, String> {
             if c.get("gate").is_some() {
                 fields.push("gate");
             }
+            if c.get("vocal_assist").is_some() {
+                fields.push("vocal_assist");
+            }
             provider::keys(c, &fields)?;
         }
     }
@@ -615,7 +721,7 @@ pub fn decode_reply(bytes: &[u8]) -> Result<Reply, String> {
     if r.context.epoch == "0" {
         return Err("processing epoch must be nonzero".into());
     }
-    if r.contract != "GP07-processing" || !matches!(r.version, 2 | 4 | 5) {
+    if r.contract != "GP07-processing" || !matches!(r.version, 2 | 4 | 5 | 6) {
         return Err("processing contract/version".into());
     }
     provider::counter(&r.revision)?;

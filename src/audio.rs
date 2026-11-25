@@ -3286,7 +3286,7 @@ mod canonical_wire_regressions {
 pub(crate) fn processing_version(audio_version: u8) -> u8 {
     match audio_version {
         1 => 2,
-        2 => 5,
+        2 => 6,
         _ => 0,
     }
 }

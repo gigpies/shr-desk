@@ -363,6 +363,10 @@ pub fn run(
                                         front.dynamics_mode =
                                             crate::controller_flow::Dynamics::Gate;
                                     }
+                                    if *menu == crate::channel_panel::Menu::Vocal {
+                                        front.dynamics_mode =
+                                            crate::controller_flow::Dynamics::Vocal;
+                                    }
                                     if *menu == crate::channel_panel::Menu::Compressor {
                                         front.dynamics_mode =
                                             crate::controller_flow::Dynamics::Compressor;

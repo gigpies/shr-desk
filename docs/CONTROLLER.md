@@ -125,7 +125,14 @@ readback, not merely a matching requested value. Physical feel remains pending.
 The modulation strip/CC1 is unassigned. SHR DAW's separate pitch/CC1 synth
 forwarding is unchanged.
 
-### Gate and Compressor modes
+### Gate, Compressor and Vocal assist modes
+
+The mode selector cycles Compressor → Gate → Vocal assist. Vocal assist (menu:
+*Vocal assist rotaries*) uses column 5 keep/attack, 6 headroom/recovery, 7 max
+cut; its pad menu has on/off, soundcheck start/stop, use measured, revert,
+review, cancel and discard take. Keys in Channel: **V** soundcheck, **C** use
+measured, **Z** revert. Assist writes need processing v6 and follow the same
+draft/review guards; see [main vocal assist](USING.md#main-vocal-assist).
 
 Click the labelled Compressor/Gate mode selector in Channel, or choose
 Compressor rotaries / Gate rotaries in the controller menu. Gate uses column
@@ -133,7 +140,7 @@ Compressor rotaries / Gate rotaries in the controller menu. Gate uses column
 and detector Hz/Q; zero Hz disables detector filtering. Compressor retains
 5 threshold/attack, 6 ratio/release, 7 knee/makeup. All edits use existing draft,
 review, permission and generation checks. Gate attenuation/state is separate
-from compressor GR. Dynamic sessions require processing v5 for gate writes.
+from compressor GR. Dynamic sessions now probe processing v6 (gate and vocal assist).
 The Gate menu offers **Manual**, **Tom**, **Automatic Import** and **Gate recorded soundcheck**.
 The recorded workflow (O in Channel, or the F10 menu) provides labelled WAV selection, preparation,
 cancellation and evidence review; see [recorded soundcheck controls](USING.md#prepare-from-recorded-soundcheck-cues). Manual enables

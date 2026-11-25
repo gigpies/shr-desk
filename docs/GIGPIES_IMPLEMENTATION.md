@@ -61,6 +61,11 @@ the software adapter from physical input acquisition and device qualification.
 
 [DS-CAL-REVIEW — calibrated offline Desk review](archive/pa-cal-review-2026-10-29.md) has software acceptance; physical qualification remains separate.
 
+The Vocal assist mode, GP-METER soundcheck recording, measured-level review and
+revert contribute to
+[GP-AUTO](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-auto--live-soundcheck-and-bounded-assistance)
+(processing v6, consumer corpus `tests/fixtures/vocal-assist/v1`).
+
 Controller profiles, Gate presentation and the 24+Master keybed contribute to
 [GP-GATE](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-gate--lightweight-channel-gates-and-tom-decay-control)
 and [GP-PANEL](../../gigpies/docs/development/MODULE_IMPLEMENTATION_PLAN.md#gp-panel--shared-physical-instrument-panel).

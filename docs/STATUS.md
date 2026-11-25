@@ -9,7 +9,7 @@ tasks and their open gates live in the
 
 | Area | Works in software | Still open |
 |---|---|---|
-| Channel | Four-band EQ, compressor, default-bypassed gate (processing v5) with Manual/Tom/Automatic import and recorded-soundcheck preparation; fader, pan, mute, Hold; reviewed apply with settled readback | Listening on real drums (GP-GATE) |
+| Channel | Four-band EQ, compressor, default-bypassed gate with Manual/Tom/Automatic import and recorded-soundcheck preparation; main-vocal assist (processing v6) with GP-METER soundcheck, measured-level review, live cut readback and one-key revert; fader, pan, mute, Hold; reviewed apply with settled readback | Listening on real drums (GP-GATE) and with a real singer (GP-AUTO) |
 | Selection | Three-row keybed: 24 inputs per bank plus Master; draft/review guards preserved | Solo has no provider contract |
 | Meters and spectrum | Raw/pre-fader input, Main pre-PA and every monitor bus; stale, invalid and silent shown distinctly; separate GR age; fullscreen EQ/RTA | Remaining frontend test coverage (GP-METER P3) |
 | Monitor sends | Per-input sends with raw / pre-fader / post-fader taps, reviewed edits | — |

@@ -80,6 +80,7 @@ impl Frontend {
     pub(super) fn console_command(&mut self, command: C) -> Result<(), String> {
         match command {
             C::GatePreparation(c) => self.gate_command(c),
+            C::Vocal(c) => self.vocal_command(c),
             C::Dynamics(mode) => {
                 self.dynamics_mode = mode;
                 self.controller_surface.lost();
@@ -543,6 +544,22 @@ impl Frontend {
         add(
             "Gate automatic import",
             Action::Console(C::GateMode(crate::gate::Mode::Automatic)),
+        );
+        add(
+            "Vocal assist rotaries",
+            Action::Console(C::Dynamics(crate::controller_flow::Dynamics::Vocal)),
+        );
+        add(
+            "Vocal soundcheck start/stop",
+            Action::Console(C::Vocal(super::vocal_assist::Command::Soundcheck)),
+        );
+        add(
+            "Use measured vocal level",
+            Action::Console(C::Vocal(super::vocal_assist::Command::Use)),
+        );
+        add(
+            "Revert vocal assist",
+            Action::Console(C::Vocal(super::vocal_assist::Command::Revert)),
         );
 
         add("Previous parameter", Action::ProcessingField(-1));

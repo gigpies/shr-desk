@@ -64,7 +64,7 @@ fn frozen_bytes_provenance_and_all_producer_replies() {
         serde_json::from_slice::<Value>(&bytes("snapshot-request")).unwrap()
     );
     let mut successor: Value = serde_json::from_slice(&bytes("gp07v4-snapshot-request")).unwrap();
-    successor["version"] = json!(5);
+    successor["version"] = json!(6);
     assert_eq!(
         serde_json::from_slice::<Value>(&session.processing_request().encode().unwrap()).unwrap(),
         successor
