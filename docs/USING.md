@@ -10,14 +10,14 @@ the engine and the control permission granted for the selected page.
 The live desk is intended for its assigned MIDI controller. Computer-keyboard
 shortcuts are optional fallback controls for the same actions.
 
-Outside the Channel panel, the terminal footer provides **Previous, Next, Choose, Cancel, Character−,
+Outside the Channel and Mix panels, the terminal footer provides **Previous, Next, Choose, Cancel, Character−,
 Character+, Add and Delete**. Previous/Next opens the labelled action menu;
 Choose acts on a full press and release. The menu includes connection/control,
 page navigation, value editors and review actions. Select an editor, choose and
 add characters, then accept/review the value through the menu. Inspect the actual
 review before choosing Confirm; opening the menu does not count as reading it.
-The footer is also clickable. On Channel, the secondary pad layer has **Controls**;
-its existing band/compressor/output pads stay in place. F10 is the optional
+The footer is also clickable. On Channel and Mix, the secondary pad layer has **Controls**;
+the page's own pads stay in place. F10 is the optional
 keyboard menu shortcut.
 
 This software path accepts explicitly bound controller messages; it does not
@@ -33,6 +33,18 @@ separate Master key; click to select, and use PageUp/PageDown for other input
 banks. Green plus `>` identifies selection. R/S/M are independent status readouts,
 never toggles; `?` means unknown/unavailable. Solo and Master gain controls are
 currently unavailable. Finish or cancel a draft/review before selecting elsewhere.
+
+## Mix
+
+**F1** shows twelve input strips per bank, filled from the engine's actual inputs:
+measured peak and gain reduction, pan, fader, mute and hold. Click a strip to
+select it; click the selected strip's fader, or the column-8 pan/level knobs, to
+open the exact-value editor. Pads 1–8 page banks and give Channel, Mute, Hold,
+Release, Mode and **Scope** (browse monitors, take control of a monitor or FOH,
+raw/pre-fader meters, next bus bank, Sends). In a monitor scope the faders show
+that monitor's sends. Values show **—** when the connection is stale; meters say
+CLIP, SILENT, FLOOR, INVALID or STALE rather than showing a number. Editors,
+reviews and drafts open over Mix exactly as before.
 
 ## Channel EQ, compression and Gate
 

@@ -33,6 +33,13 @@ pub enum Target {
     Field(usize),
     Menu(Menu),
     Layer,
+    /// Mix strip: selects that input; when it is already selected, an optional
+    /// existing exact-value editor opens instead. Checked at press time.
+    Strip {
+        input: String,
+        edit: Option<crate::exact_value::Parameter>,
+    },
+    MixMenu(crate::mix_panel::Menu),
 }
 #[derive(Clone, Debug)]
 pub struct Hit {
@@ -92,7 +99,7 @@ fn pot(
         selected,
     );
 }
-fn pad(
+pub(crate) fn pad(
     b: &mut Buffer,
     h: &mut Vec<Hit>,
     (col, number): (u16, u16),
@@ -124,7 +131,7 @@ fn pad(
 }
 // Digital peak scale: green below -12 dBFS, amber to -4, red near full scale.
 // Dim coloured segments describe the scale, never a valid observation.
-fn meter_colour(db: i32, lit: bool) -> Color {
+pub(crate) fn meter_colour(db: i32, lit: bool) -> Color {
     match (db >= -4000, db >= -12000, lit) {
         (true, _, true) => RED,
         (true, _, false) => Color::Rgb(72, 30, 34),
@@ -137,7 +144,7 @@ fn meter_colour(db: i32, lit: bool) -> Color {
 /// Default entry retained for fallback and focused workflow regression tests.
 /// Observed raw input levels and independently fresh owner gain reduction.
 /// Reduction fills downward; missing observations leave an unlit scale and dash.
-fn channel_meter(
+pub(crate) fn channel_meter(
     b: &mut Buffer,
     x: u16,
     label: &str,

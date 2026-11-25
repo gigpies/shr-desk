@@ -42,6 +42,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Inputs per Mix/meter display bank: a presentation bound, never engine capacity.
+pub const MIX_BANK: usize = 12;
 #[derive(Clone)]
 pub struct Config {
     /// Explicit C-AUDIO/rendered version: 1 legacy, 2 dynamic.
@@ -2690,10 +2692,10 @@ impl Frontend {
                     return Err("inputs unavailable".into());
                 }
                 let selected = if matches!(action, Action::Bank(_)) {
-                    let bank_count = n.div_ceil(12);
-                    let bank = (self.selected as i64 / 12 + i64::from(delta))
+                    let bank_count = n.div_ceil(MIX_BANK);
+                    let bank = (self.selected as i64 / MIX_BANK as i64 + i64::from(delta))
                         .rem_euclid(bank_count as i64) as usize;
-                    (bank * 12 + self.selected % 12).min(n - 1)
+                    (bank * MIX_BANK + self.selected % MIX_BANK).min(n - 1)
                 } else {
                     (self.selected as i64 + i64::from(delta)).rem_euclid(n as i64) as usize
                 };
@@ -2875,7 +2877,7 @@ impl Frontend {
                     })
             })
     }
-    fn selected_input(&self) -> Option<&str> {
+    pub(crate) fn selected_input(&self) -> Option<&str> {
         if self.selected_master {
             return None;
         }
@@ -2888,7 +2890,7 @@ impl Frontend {
             .get(self.selected)
             .map(String::as_str)
     }
-    fn scope_monitor(&self) -> Result<Option<&str>, String> {
+    pub(crate) fn scope_monitor(&self) -> Result<Option<&str>, String> {
         if self.scope == "foh" {
             return Ok(None);
         }
@@ -3283,6 +3285,33 @@ impl Frontend {
                             .any(|c| Some(c.input.as_str()) == self.selected_input())
                     })
             })
+    }
+    /// Mix plates draw only over the regular FOH/monitor Mix view. Every modal,
+    /// editor, review and other page keeps its existing presentation.
+    pub fn mix_panel_visible(&self) -> bool {
+        !self.controller_surface.open
+            && !self.gate_preparation.open
+            && self.page == Page::Mix
+            && (self.scope == "foh" || self.scope.starts_with("monitor"))
+            && !self.meter_page
+            && !self.brain_page
+            && !self.live_page
+            && !self.sends_page
+            && self.topology_page.is_none()
+            && !self.record_page
+            && !self.fx_ui.open
+            && !self.fx_aux_ui.open
+            && !self.measurement_ui.open
+            && !self.mode_picker
+            && self.exact_draft.is_none()
+            && self.structural_draft.is_none()
+            && self.device_draft.is_none()
+            && self.processing_draft.is_none()
+            && self.send_draft.is_none()
+            && self
+                .state
+                .as_ref()
+                .is_some_and(|s| s.review.is_none() && s.snapshot.is_some())
     }
     /// Mouse selection only opens/selects a detached field; it never applies it.
     pub fn channel_panel_field(&mut self, index: usize) -> Result<(), String> {
@@ -4382,6 +4411,9 @@ mod processing_tests;
 
 #[cfg(test)]
 mod meter_tests;
+
+#[cfg(test)]
+mod mix_panel_tests;
 
 impl Frontend {
     fn send_pair(&self) -> Result<(String, String), String> {

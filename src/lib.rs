@@ -57,6 +57,8 @@ pub mod terminal;
 
 pub mod channel_panel;
 
+pub mod mix_panel;
+
 pub mod channel_material;
 
 pub mod spectrum;

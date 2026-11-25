@@ -113,6 +113,7 @@ pub fn run(
     let mut visible = false;
     let mut hits = Vec::new();
     let mut panel_ui = crate::channel_panel::PanelUi::default();
+    let mut mix_ui = crate::mix_panel::MixUi::default();
     let materials_enabled = crate::channel_material::Materials::enabled();
     let mut materials = crate::channel_material::Materials::default();
     let result = (|| -> Result<(), String> {
@@ -134,7 +135,8 @@ pub fn run(
                 processing_probe = std::time::Instant::now();
             }
             if presentation.due(Instant::now()) {
-                let s = if front.channel_panel_visible() {
+                let mix = front.mix_panel_visible();
+                let s = if front.channel_panel_visible() || mix {
                     Vec::new()
                 } else {
                     primitives(&front.scene())
@@ -172,6 +174,14 @@ pub fn run(
                             } else {
                                 f.area().width >= 160 && f.area().height >= 45
                             }
+                        } else if mix {
+                            hits = crate::mix_panel::draw(
+                                &front,
+                                f.buffer_mut(),
+                                material,
+                                &mix_ui,
+                            );
+                            true
                         } else if !front.controller_surface.open
                             && s.iter()
                                 .filter(|p| matches!(p, scene::Primitive::Rect { .. }))
@@ -199,7 +209,7 @@ pub fn run(
                         };
                         f.buffer_mut().area = full_area;
                         if visible { hits.extend(front.draw_keybed(f.buffer_mut())); }
-                        if visible && !front.channel_panel_visible() {
+                        if visible && !front.channel_panel_visible() && !mix {
                             use shr_instrument_panel::terminal::ratatui::{
                                 layout::Rect, widgets::Paragraph,
                             };
@@ -299,6 +309,7 @@ pub fn run(
                     Input::Mouse(mouse)
                         if visible
                             && !front.channel_panel_visible()
+                            && !front.mix_panel_visible()
                             && mouse.row + 1
                                 == console.terminal.size().map_err(|e| e.to_string())?.height
                             && mouse.column < 64 =>
@@ -377,7 +388,30 @@ pub fn run(
                                     crate::channel_panel::Target::Layer,
                                     MouseEventKind::Down(MouseButton::Left),
                                 ) => {
-                                    panel_ui.secondary = !panel_ui.secondary;
+                                    if front.mix_panel_visible() {
+                                        mix_ui.secondary = !mix_ui.secondary;
+                                    } else {
+                                        panel_ui.secondary = !panel_ui.secondary;
+                                    }
+                                }
+                                (
+                                    crate::channel_panel::Target::MixMenu(menu),
+                                    MouseEventKind::Down(MouseButton::Left),
+                                ) => {
+                                    mix_ui.menu = *menu;
+                                    mix_ui.secondary = false;
+                                }
+                                (
+                                    crate::channel_panel::Target::Strip { input, edit },
+                                    MouseEventKind::Down(MouseButton::Left),
+                                ) => {
+                                    // Decide at press time: a strip that is not the
+                                    // current selection only selects; it never edits.
+                                    if let Some(action) =
+                                        crate::mix_panel::strip_action(&front, input, *edit)
+                                    {
+                                        let _ = front.inject_controller(action);
+                                    }
                                 }
                                 _ => {}
                             }

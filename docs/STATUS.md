@@ -20,7 +20,7 @@ tasks and their open gates live in the
 | Brain listening | PFL/AFL, talkback with reviewed grants | Physical duplex device (GP-H1) |
 | Audio setups | Sixteen slots, reviewed save/restore per granted scope under an output hold | Physical recall |
 | Controllers | Semantic pad menus, typed actions; learned SHR-DAW MiniLab mapping imported (`--controller-import-daw`), read-only MIDI acquisition (`--controller-profile`) | Pads bank 2/key channel check, LEDs, disconnect recovery on hardware (GP-H2) |
-| Rendering | Ratatui terminal panel (shared instrument panel 0.3.3); optional native window; CPU offscreen checks | Page-by-page physical redesign, SSH path (GP-PANEL) |
+| Rendering | Ratatui terminal panel (shared instrument panel 0.3.3): cell-native Channel and Mix pages; optional native window; CPU offscreen checks | Redesign of the remaining pages, SSH path (GP-PANEL) |
 
 Nothing here opens audio, MIDI output or DMX on its own; the controller reader is
 read-only and only runs when a profile is supplied.
